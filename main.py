@@ -5,7 +5,13 @@ import logging
 import requests
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
 load_dotenv()
 
@@ -16,7 +22,7 @@ URL_REGEX = r"(https?://[^\s]+|www\.[^\s]+)"
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 
 
@@ -41,26 +47,26 @@ def check_url(url: str) -> str:
 
     try:
         url_id = get_url_id(url)
-        report_api = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+        api_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
 
-        response = requests.get(report_api, headers=headers, timeout=15)
+        response = requests.get(api_url, headers=headers, timeout=15)
 
         if response.status_code == 404:
-            submit_response = requests.post(
+            submit = requests.post(
                 "https://www.virustotal.com/api/v3/urls",
                 headers=headers,
                 data={"url": url},
-                timeout=15
+                timeout=15,
             )
 
-            if submit_response.status_code in (200, 201):
+            if submit.status_code in (200, 201):
                 return (
-                    "⏳ لم أجد نتيجة قديمة لهذا الرابط.\n"
-                    "تم إرسال الرابط للفحص.\n"
+                    "⏳ الرابط غير موجود في قاعدة البيانات.\n"
+                    "تم إرساله للفحص.\n"
                     "أرسل الرابط مرة أخرى بعد دقيقة."
                 )
 
-            return f"❌ فشل إرسال الرابط للفحص. كود الخطأ: {submit_response.status_code}"
+            return f"❌ فشل إرسال الرابط للفحص. الكود: {submit.status_code}"
 
         if response.status_code == 401:
             return "❌ مفتاح VirusTotal غير صحيح."
@@ -69,7 +75,7 @@ def check_url(url: str) -> str:
             return "⚠️ وصلت للحد المسموح في VirusTotal. جرّب لاحقًا."
 
         if response.status_code != 200:
-            return f"❌ حدث خطأ أثناء الفحص. كود الخطأ: {response.status_code}"
+            return f"❌ حدث خطأ أثناء الفحص. الكود: {response.status_code}"
 
         data = response.json()
         stats = data["data"]["attributes"]["last_analysis_stats"]
@@ -79,9 +85,7 @@ def check_url(url: str) -> str:
         harmless = stats.get("harmless", 0)
         undetected = stats.get("undetected", 0)
 
-        total_bad = malicious + suspicious
-
-        if total_bad > 0:
+        if malicious > 0 or suspicious > 0:
             verdict = "⚠️ الرابط مشبوه أو خطر"
         else:
             verdict = "✅ الرابط يبدو آمنًا"
@@ -95,7 +99,7 @@ def check_url(url: str) -> str:
         )
 
     except requests.exceptions.Timeout:
-        return "⏱️ انتهت مهلة الاتصال. جرّب مرة أخرى."
+        return "⏱️ انتهت مهلة الاتصال. جرّب مرة ثانية."
 
     except requests.exceptions.RequestException:
         return "❌ حدث خطأ في الاتصال بـ VirusTotal."
@@ -109,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "مرحبًا 👋\n\n"
         "أنا بوت فحص الروابط.\n"
-        "أرسل أي رابط وسأفحصه لك عبر VirusTotal.\n\n"
+        "أرسل لي أي رابط وسأفحصه لك عبر VirusTotal.\n\n"
         "مثال:\n"
         "https://google.com"
     )
@@ -117,11 +121,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "الأوامر المتاحة:\n\n"
+        "الأوامر:\n\n"
         "/start - تشغيل البوت\n"
         "/help - المساعدة\n\n"
-        "أرسل رابطًا مباشرًا مثل:\n"
-        "https://example.com"
+        "أرسل رابطًا وسأفحصه لك."
     )
 
 
@@ -133,11 +136,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("لم أجد أي رابط في رسالتك.")
         return
 
-    urls = urls[:3]
-
     await update.message.reply_text("🔍 جاري فحص الرابط...")
 
-    for url in urls:
+    for url in urls[:3]:
         result = check_url(url)
         await update.message.reply_text(
             f"🔗 الرابط:\n{url}\n\n{result}"
@@ -146,10 +147,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN غير موجود داخل ملف .env")
+        raise ValueError("BOT_TOKEN غير موجود. أضفه في Railway Variables")
 
     if not VT_API_KEY:
-        raise ValueError("VT_API_KEY غير موجود داخل ملف .env")
+        raise ValueError("VT_API_KEY غير موجود. أضفه في Railway Variables")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
