@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import time
+import threading
 from collections import defaultdict, deque
 from dotenv import load_dotenv
 from urllib.parse import quote
@@ -13,6 +14,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+import uvicorn
 from scanner import URL_REGEX, check_url, clean_url, normalize_url, safe_url_label
 
 load_dotenv()
@@ -31,6 +33,13 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+def run_api_server():
+    port = int(os.getenv("PORT", "8000"))
+    config = uvicorn.Config("api:app", host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    server.run()
 
 
 def share_bot_keyboard() -> InlineKeyboardMarkup:
@@ -128,6 +137,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN غير موجود. أضفه في Railway Variables")
+
+    api_thread = threading.Thread(target=run_api_server, daemon=True)
+    api_thread.start()
+    logger.info("FastAPI server is running")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
