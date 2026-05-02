@@ -30,7 +30,8 @@ ADMIN_USER_IDS=472620042
 `ADMIN_USER_IDS` is a comma-separated list of numeric Telegram `user.id` values.
 Users in this list bypass the scan rate limit. The example above configures
 Telegram `user.id` `472620042` as an admin. Use `/myid` in the bot to find the
-numeric ID for an account; usernames are not matched for admin access.
+numeric ID for an account. Usernames such as `@example` are not matched for
+admin access and are ignored.
 
 ## Setup
 

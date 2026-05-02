@@ -26,6 +26,15 @@ class MainRateLimitTests(unittest.TestCase):
 
         self.assertNotIn(222, main.user_scan_times)
 
+    def test_parse_admin_user_ids_accepts_comma_separated_numeric_ids(self):
+        self.assertEqual(main.parse_admin_user_ids("111, 222,333"), {111, 222, 333})
+
+    def test_parse_admin_user_ids_ignores_usernames(self):
+        with self.assertLogs("main", level="WARNING"):
+            admin_ids = main.parse_admin_user_ids("111, @adminuser, adminuser")
+
+        self.assertEqual(admin_ids, {111})
+
     def test_format_user_identity_includes_id_and_username(self):
         user = SimpleNamespace(id=333, username="meqren10")
 

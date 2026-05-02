@@ -25,11 +25,6 @@ USER_SCAN_LIMIT = 3
 USER_SCAN_WINDOW_SECONDS = 60
 MAX_MESSAGE_LENGTH = 2000
 MAX_URL_LENGTH = 2048
-ADMIN_USER_IDS = {
-    int(user_id.strip())
-    for user_id in os.getenv("ADMIN_USER_IDS", "").split(",")
-    if user_id.strip().isdigit()
-}
 
 logger = logging.getLogger(__name__)
 user_scan_times = defaultdict(deque)
@@ -38,6 +33,30 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+def parse_admin_user_ids(value: str) -> set[int]:
+    admin_ids = set()
+
+    for raw_user_id in value.split(","):
+        user_id = raw_user_id.strip()
+
+        if not user_id:
+            continue
+
+        if not user_id.isdigit():
+            logger.warning(
+                "Ignoring invalid ADMIN_USER_IDS entry %r. Use numeric Telegram user IDs, not usernames.",
+                user_id,
+            )
+            continue
+
+        admin_ids.add(int(user_id))
+
+    return admin_ids
+
+
+ADMIN_USER_IDS = parse_admin_user_ids(os.getenv("ADMIN_USER_IDS", ""))
 
 
 def run_api_server():
