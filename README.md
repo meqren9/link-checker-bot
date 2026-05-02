@@ -34,6 +34,34 @@ Then edit `.env` with your Telegram bot token.
 python main.py
 ```
 
+## Run API Locally
+
+The FastAPI backend is separate from the Telegram polling bot, so the bot can
+continue running with `python main.py`.
+
+Install dependencies, then start the API with:
+
+```bash
+uvicorn api:app --reload
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Scan a URL:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/scan \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","initData":"telegram-init-data"}'
+```
+
+The API requires `initData` in the request for Mini App compatibility, but this
+phase only performs basic input validation and local URL scanning.
+
 ## Notes
 
 - The local scan is a lightweight heuristic check and does not guarantee safety.
