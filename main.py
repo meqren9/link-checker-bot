@@ -57,6 +57,37 @@ def get_url_id(url: str) -> str:
     return encoded.strip("=")
 
 
+def format_scan_result(stats: dict) -> str:
+    malicious = stats.get("malicious", 0)
+    suspicious = stats.get("suspicious", 0)
+    harmless = stats.get("harmless", 0)
+    undetected = stats.get("undetected", 0)
+
+    if malicious > 0:
+        verdict = "🚨 النتيجة: خطر"
+        explanation = "وجدت بعض محركات الفحص أن الرابط ضار. لا تفتحه."
+    elif suspicious > 0:
+        verdict = "⚠️ النتيجة: مشبوه"
+        explanation = "لم يتم تأكيد أنه ضار، لكن توجد مؤشرات تستدعي الحذر."
+    elif harmless > 0:
+        verdict = "✅ النتيجة: لا توجد مؤشرات خطر واضحة"
+        explanation = "لم ترصد محركات الفحص المتاحة علامات خطرة على الرابط."
+    else:
+        verdict = "ℹ️ النتيجة: غير كافية"
+        explanation = "لا توجد بيانات كافية للحكم على الرابط بثقة."
+
+    return (
+        f"{verdict}\n"
+        f"{explanation}\n\n"
+        "تفاصيل الفحص من VirusTotal:\n"
+        f"🔴 ضار: {malicious}\n"
+        f"🟠 مشبوه: {suspicious}\n"
+        f"🟢 سليم: {harmless}\n"
+        f"⚪ غير معروف: {undetected}\n\n"
+        "ملاحظة: نتيجة الفحص تساعدك على التقييم لكنها لا تضمن الأمان بنسبة 100%."
+    )
+
+
 def check_url(url: str) -> str:
     url = normalize_url(url)
 
@@ -99,23 +130,7 @@ def check_url(url: str) -> str:
         data = response.json()
         stats = data["data"]["attributes"]["last_analysis_stats"]
 
-        malicious = stats.get("malicious", 0)
-        suspicious = stats.get("suspicious", 0)
-        harmless = stats.get("harmless", 0)
-        undetected = stats.get("undetected", 0)
-
-        if malicious > 0 or suspicious > 0:
-            verdict = "⚠️ الرابط مشبوه أو خطر"
-        else:
-            verdict = "✅ الرابط يبدو آمنًا"
-
-        return (
-            f"{verdict}\n\n"
-            f"🔴 خطير: {malicious}\n"
-            f"🟠 مشبوه: {suspicious}\n"
-            f"🟢 آمن: {harmless}\n"
-            f"⚪ غير معروف: {undetected}"
-        )
+        return format_scan_result(stats)
 
     except requests.exceptions.Timeout:
         return "⏱️ انتهت مهلة الاتصال. جرّب مرة ثانية."
