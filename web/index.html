@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SafeLiinkBot</title>
+    <link rel="stylesheet" href="/web/app.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="scan-panel" aria-labelledby="app-title">
+        <header class="panel-header">
+          <p class="eyebrow">SafeLiinkBot</p>
+          <h1 id="app-title">فحص رابط</h1>
+        </header>
+
+        <form id="scan-form" class="scan-form">
+          <label for="url-input">الرابط</label>
+          <div class="input-row">
+            <input
+              id="url-input"
+              name="url"
+              type="url"
+              inputmode="url"
+              autocomplete="url"
+              placeholder="https://example.com"
+              required
+            >
+            <button id="scan-button" type="submit">فحص</button>
+          </div>
+        </form>
+
+        <section id="status" class="status" aria-live="polite"></section>
+        <section id="result" class="result" hidden></section>
+      </section>
+    </main>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/web/app.js"></script>
+  </body>
+</html>

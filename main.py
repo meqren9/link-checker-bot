@@ -6,7 +6,7 @@ import threading
 from collections import defaultdict, deque
 from dotenv import load_dotenv
 from urllib.parse import quote
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -20,6 +20,7 @@ from scanner import URL_REGEX, check_url, clean_url, normalize_url, safe_url_lab
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
 
 USER_SCAN_LIMIT = 3
 USER_SCAN_WINDOW_SECONDS = 60
@@ -75,6 +76,15 @@ def share_bot_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def start_keyboard() -> InlineKeyboardMarkup | None:
+    if not WEBAPP_URL:
+        return None
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔎 فتح الفحص", web_app=WebAppInfo(url=WEBAPP_URL))]
+    ])
+
+
 def is_admin_user(user_id: int) -> bool:
     return user_id in ADMIN_USER_IDS
 
@@ -108,7 +118,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "أرسل لي رابطًا وسأفحصه محليًا بمؤشرات بسيطة.\n"
         "يمكنك إرسال حتى 3 روابط في الرسالة الواحدة.\n\n"
         "مثال:\n"
-        "https://google.com"
+        "https://google.com",
+        reply_markup=start_keyboard(),
     )
 
 

@@ -1,14 +1,20 @@
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StrictStr
 
 from scanner import clean_url, local_scan_url, normalize_url, safe_url_label
 
 
 MAX_URL_LENGTH = 2048
+BASE_DIR = Path(__file__).resolve().parent
+WEB_DIR = BASE_DIR / "web"
 
 app = FastAPI(title="SafeLiinkBot API")
+app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 
 
 class ScanRequest(BaseModel):
@@ -19,6 +25,11 @@ class ScanRequest(BaseModel):
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/")
+async def frontend() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.post("/api/scan")
