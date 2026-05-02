@@ -6,8 +6,10 @@ Telegram bot that checks links before opening them.
 
 - Detects links in Telegram text messages.
 - Checks up to 3 links per message.
+- Replies to `/myid` with the sender's Telegram `user.id` and username.
 - Runs a local heuristic scan only.
-- Limits each user to 5 scans per minute.
+- Limits normal users to 3 scans per minute.
+- Allows configured admin users to scan without rate limits.
 - Rejects overly long messages and URLs.
 - Does not show full URLs in replies.
 
@@ -19,6 +21,15 @@ Required:
 BOT_TOKEN=your_telegram_bot_token
 ```
 
+Optional:
+
+```env
+ADMIN_USER_IDS=123456789,987654321
+```
+
+`ADMIN_USER_IDS` is a comma-separated list of Telegram `user.id` values. Users
+in this list bypass the scan rate limit.
+
 ## Setup
 
 ```bash
@@ -26,7 +37,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Then edit `.env` with your Telegram bot token.
+Then edit `.env` with your Telegram bot token and any admin Telegram user IDs.
 
 ## Run
 

@@ -21,10 +21,15 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-USER_SCAN_LIMIT = 5
+USER_SCAN_LIMIT = 3
 USER_SCAN_WINDOW_SECONDS = 60
 MAX_MESSAGE_LENGTH = 2000
 MAX_URL_LENGTH = 2048
+ADMIN_USER_IDS = {
+    int(user_id.strip())
+    for user_id in os.getenv("ADMIN_USER_IDS", "").split(",")
+    if user_id.strip().isdigit()
+}
 
 logger = logging.getLogger(__name__)
 user_scan_times = defaultdict(deque)
@@ -51,7 +56,14 @@ def share_bot_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def is_admin_user(user_id: int) -> bool:
+    return user_id in ADMIN_USER_IDS
+
+
 def can_scan_for_user(user_id: int) -> bool:
+    if is_admin_user(user_id):
+        return True
+
     now = time.time()
     scan_times = user_scan_times[user_id]
 
@@ -63,6 +75,12 @@ def can_scan_for_user(user_id: int) -> bool:
 
     scan_times.append(now)
     return True
+
+
+def format_user_identity(user) -> str:
+    username = f"@{user.username}" if user and user.username else "لا يوجد اسم مستخدم"
+    user_id = user.id if user else "غير معروف"
+    return f"معرّفك في Telegram:\n{user_id}\n\nاسم المستخدم:\n{username}"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,10 +98,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "الأوامر:\n\n"
         "/start - تشغيل البوت\n"
         "/help - المساعدة\n\n"
+        "/myid - عرض معرّفك واسم المستخدم\n\n"
         "أرسل رابطًا يبدأ بـ https:// أو www وسأفحصه لك.\n"
         "الفحص الحالي محلي وإرشادي فقط.\n"
         "لن أعرض الرابط كاملًا في الرد حفاظًا على الخصوصية."
     )
+
+
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(format_user_identity(update.effective_user))
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,7 +143,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not can_scan_for_user(user_id):
             await update.message.reply_text(
                 "وصلت للحد المؤقت للفحص.\n"
-                "يمكنك فحص حتى 5 روابط في الدقيقة. جرّب بعد قليل."
+                "يمكنك فحص حتى 3 روابط في الدقيقة. جرّب بعد قليل."
             )
             break
 
@@ -146,6 +169,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot is running")
