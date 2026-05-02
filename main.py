@@ -1,11 +1,11 @@
 import os
 import re
-import base64
 import logging
-import requests
+import time
+from collections import defaultdict, deque
 from dotenv import load_dotenv
-from urllib.parse import urlsplit
-from telegram import Update
+from urllib.parse import quote, urlsplit
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -17,18 +17,31 @@ from telegram.ext import (
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-VT_API_KEY = os.getenv("VT_API_KEY")
 
 URL_REGEX = r"(https?://[^\s]+|www\.[^\s]+)"
 TRAILING_URL_CHARS = ".,;:!?)]}>'\"،؛؟"
 LEADING_URL_CHARS = "([<{\"'"
+USER_SCAN_LIMIT = 5
+USER_SCAN_WINDOW_SECONDS = 60
+MAX_MESSAGE_LENGTH = 2000
+MAX_URL_LENGTH = 2048
 
 logger = logging.getLogger(__name__)
+user_scan_times = defaultdict(deque)
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+def share_bot_keyboard() -> InlineKeyboardMarkup:
+    share_text = quote("افحص أي رابط قبل فتحه عبر @SafeLiinkBot")
+    share_url = f"https://t.me/share/url?text={share_text}"
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📤 مشاركة البوت", url=share_url)]
+    ])
 
 
 def normalize_url(url: str) -> str:
@@ -52,110 +65,96 @@ def safe_url_label(url: str) -> str:
     return "رابط غير صالح"
 
 
-def get_url_id(url: str) -> str:
-    encoded = base64.urlsafe_b64encode(url.encode()).decode()
-    return encoded.strip("=")
+def local_scan_url(url: str) -> dict:
+    normalized = normalize_url(url)
+    parsed = urlsplit(normalized)
+    hostname = parsed.hostname or ""
+    risk_score = 0
+    signals = []
 
+    if not parsed.scheme or not parsed.netloc:
+        risk_score += 40
+        signals.append("صيغة الرابط غير واضحة.")
 
-def format_scan_result(stats: dict) -> str:
-    malicious = stats.get("malicious", 0)
-    suspicious = stats.get("suspicious", 0)
-    harmless = stats.get("harmless", 0)
-    undetected = stats.get("undetected", 0)
+    if parsed.scheme != "https":
+        risk_score += 15
+        signals.append("الرابط لا يستخدم HTTPS.")
 
-    if malicious > 0:
-        verdict = "🚨 النتيجة: خطر"
-        explanation = "وجدت بعض محركات الفحص أن الرابط ضار. لا تفتحه."
-    elif suspicious > 0:
-        verdict = "⚠️ النتيجة: مشبوه"
-        explanation = "لم يتم تأكيد أنه ضار، لكن توجد مؤشرات تستدعي الحذر."
-    elif harmless > 0:
-        verdict = "✅ النتيجة: لا توجد مؤشرات خطر واضحة"
-        explanation = "لم ترصد محركات الفحص المتاحة علامات خطرة على الرابط."
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", hostname):
+        risk_score += 25
+        signals.append("الرابط يستخدم عنوان IP بدل اسم نطاق.")
+
+    if "xn--" in hostname:
+        risk_score += 20
+        signals.append("النطاق قد يحتوي أحرفًا شبيهة أو دولية.")
+
+    if len(normalized) > 120:
+        risk_score += 10
+        signals.append("الرابط طويل وقد يخفي تفاصيل مهمة.")
+
+    suspicious_words = ("login", "verify", "secure", "account", "update", "gift")
+    if any(word in normalized.lower() for word in suspicious_words):
+        risk_score += 15
+        signals.append("يحتوي الرابط كلمات شائعة في روابط التصيد.")
+
+    risk_score = min(risk_score, 100)
+
+    if risk_score >= 60:
+        verdict = "🚨 التقييم الحالي: خطر محتمل"
+        explanation = "الفحص المحلي وجد عدة مؤشرات تستدعي تجنب الرابط."
+    elif risk_score >= 30:
+        verdict = "⚠️ التقييم الحالي: مشبوه"
+        explanation = "الفحص المحلي وجد مؤشرات تحتاج حذرًا قبل فتح الرابط."
     else:
-        verdict = "ℹ️ النتيجة: غير كافية"
-        explanation = "لا توجد بيانات كافية للحكم على الرابط بثقة."
+        verdict = "✅ التقييم الحالي: لا توجد مؤشرات خطر واضحة"
+        explanation = "الفحص المحلي لم يجد علامات خطرة واضحة."
+
+    return {
+        "verdict": verdict,
+        "risk_score": risk_score,
+        "explanation": explanation,
+        "signals": signals,
+    }
+
+
+def format_local_scan_result(result: dict) -> str:
+    signals = result["signals"] or ["لا توجد مؤشرات محلية واضحة."]
+    signal_lines = "\n".join(f"- {signal}" for signal in signals[:3])
 
     return (
-        f"{verdict}\n"
-        f"{explanation}\n\n"
-        "تفاصيل الفحص من VirusTotal:\n"
-        f"🔴 ضار: {malicious}\n"
-        f"🟠 مشبوه: {suspicious}\n"
-        f"🟢 سليم: {harmless}\n"
-        f"⚪ غير معروف: {undetected}\n\n"
-        "ملاحظة: نتيجة الفحص تساعدك على التقييم لكنها لا تضمن الأمان بنسبة 100%."
+        f"{result['verdict']}\n"
+        f"درجة الخطورة: {result['risk_score']}/100\n\n"
+        f"{result['explanation']}\n\n"
+        "الفحص المحلي:\n"
+        f"{signal_lines}\n\n"
+        "تنبيه: حتى إذا ظهرت النتيجة آمنة، فهذا لا يضمن الأمان بنسبة 100%.\n\n"
+        "ساعد غيرك على فحص الروابط بمشاركة البوت: @SafeLiinkBot"
     )
 
 
 def check_url(url: str) -> str:
     url = normalize_url(url)
+    return format_local_scan_result(local_scan_url(url))
 
-    headers = {
-        "x-apikey": VT_API_KEY
-    }
 
-    try:
-        url_id = get_url_id(url)
-        api_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+def can_scan_for_user(user_id: int) -> bool:
+    now = time.time()
+    scan_times = user_scan_times[user_id]
 
-        response = requests.get(api_url, headers=headers, timeout=15)
+    while scan_times and now - scan_times[0] >= USER_SCAN_WINDOW_SECONDS:
+        scan_times.popleft()
 
-        if response.status_code == 404:
-            submit = requests.post(
-                "https://www.virustotal.com/api/v3/urls",
-                headers=headers,
-                data={"url": url},
-                timeout=15,
-            )
+    if len(scan_times) >= USER_SCAN_LIMIT:
+        return False
 
-            if submit.status_code in (200, 201):
-                return (
-                    "⏳ الرابط غير موجود في قاعدة البيانات.\n"
-                    "تم إرساله للفحص.\n"
-                    "أرسل الرابط مرة أخرى بعد دقيقة."
-                )
-
-            return f"❌ فشل إرسال الرابط للفحص. الكود: {submit.status_code}"
-
-        if response.status_code == 401:
-            return "❌ مفتاح VirusTotal غير صحيح."
-
-        if response.status_code == 429:
-            return "⚠️ وصلت للحد المسموح في VirusTotal. جرّب لاحقًا."
-
-        if response.status_code != 200:
-            return f"❌ حدث خطأ أثناء الفحص. الكود: {response.status_code}"
-
-        data = response.json()
-        stats = data["data"]["attributes"]["last_analysis_stats"]
-
-        return format_scan_result(stats)
-
-    except requests.exceptions.Timeout:
-        return "⏱️ انتهت مهلة الاتصال. جرّب مرة ثانية."
-
-    except requests.exceptions.RequestException as exc:
-        logger.warning(
-            "VirusTotal request failed for %s: %s",
-            safe_url_label(url),
-            exc.__class__.__name__,
-        )
-        return "❌ حدث خطأ في الاتصال بخدمة الفحص. جرّب مرة أخرى لاحقًا."
-
-    except Exception as exc:
-        logger.error(
-            "Unexpected error while checking %s: %s",
-            safe_url_label(url),
-            exc.__class__.__name__,
-        )
-        return "❌ حدث خطأ غير متوقع أثناء الفحص."
+    scan_times.append(now)
+    return True
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "مرحبًا 👋\n\n"
-        "أرسل لي رابطًا وسأفحصه عبر VirusTotal.\n"
+        "أرسل لي رابطًا وسأفحصه محليًا بمؤشرات بسيطة.\n"
         "يمكنك إرسال حتى 3 روابط في الرسالة الواحدة.\n\n"
         "مثال:\n"
         "https://google.com"
@@ -168,12 +167,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - تشغيل البوت\n"
         "/help - المساعدة\n\n"
         "أرسل رابطًا يبدأ بـ https:// أو www وسأفحصه لك.\n"
+        "الفحص الحالي محلي وإرشادي فقط.\n"
         "لن أعرض الرابط كاملًا في الرد حفاظًا على الخصوصية."
     )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
+
+    if len(text) > MAX_MESSAGE_LENGTH:
+        await update.message.reply_text(
+            "الرسالة طويلة جدًا.\n"
+            "أرسل رسالة أقصر تحتوي على الروابط التي تريد فحصها فقط."
+        )
+        return
+
     urls = [clean_url(url) for url in re.findall(URL_REGEX, text)]
     urls = [url for url in urls if url]
 
@@ -187,9 +195,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 جاري فحص الروابط...")
 
     for url in urls[:3]:
+        user_id = update.effective_user.id if update.effective_user else update.effective_chat.id
+
+        if len(normalize_url(url)) > MAX_URL_LENGTH:
+            await update.message.reply_text(
+                "تجاوز أحد الروابط الحد الأقصى للطول، لذلك لم أقم بفحصه."
+            )
+            continue
+
+        if not can_scan_for_user(user_id):
+            await update.message.reply_text(
+                "وصلت للحد المؤقت للفحص.\n"
+                "يمكنك فحص حتى 5 روابط في الدقيقة. جرّب بعد قليل."
+            )
+            break
+
         result = check_url(url)
         await update.message.reply_text(
-            f"🔗 الرابط:\n{safe_url_label(url)}\n\n{result}"
+            f"🔗 الرابط:\n{safe_url_label(url)}\n\n{result}",
+            reply_markup=share_bot_keyboard(),
         )
 
     if len(urls) > 3:
@@ -199,9 +223,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN غير موجود. أضفه في Railway Variables")
-
-    if not VT_API_KEY:
-        raise ValueError("VT_API_KEY غير موجود. أضفه في Railway Variables")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
