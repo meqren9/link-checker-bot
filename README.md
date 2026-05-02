@@ -24,11 +24,13 @@ BOT_TOKEN=your_telegram_bot_token
 Optional:
 
 ```env
-ADMIN_USER_IDS=123456789,987654321
+ADMIN_USER_IDS=472620042
 ```
 
-`ADMIN_USER_IDS` is a comma-separated list of Telegram `user.id` values. Users
-in this list bypass the scan rate limit.
+`ADMIN_USER_IDS` is a comma-separated list of numeric Telegram `user.id` values.
+Users in this list bypass the scan rate limit. The example above configures
+Telegram `user.id` `472620042` as an admin. Use `/myid` in the bot to find the
+numeric ID for an account; usernames are not matched for admin access.
 
 ## Setup
 
