@@ -43,6 +43,28 @@ class MainRateLimitTests(unittest.TestCase):
         self.assertIn("333", response)
         self.assertIn("@meqren10", response)
 
+    def test_report_token_stores_report_key_not_full_url(self):
+        main.pending_report_tokens.clear()
+
+        token = main.report_token_for_url("https://example.com/private/path?token=secret")
+        pending = main.pending_report_tokens[token]
+
+        self.assertEqual(pending["report_key"]["key"], "domain:example.com")
+        self.assertNotIn("private", str(pending))
+        self.assertNotIn("secret", str(pending))
+
+    def test_group_warning_says_messages_are_not_deleted(self):
+        result = {
+            "risk_score": 65,
+            "explanation": "الفحص المحلي وجد عدة مؤشرات تستدعي تجنب الرابط.",
+        }
+
+        response = main.group_warning_text("https://example.com/private/path", result)
+
+        self.assertIn("لم أحذف الرسالة", response)
+        self.assertIn("https://example.com/...", response)
+        self.assertNotIn("private", response)
+
 
 if __name__ == "__main__":
     unittest.main()

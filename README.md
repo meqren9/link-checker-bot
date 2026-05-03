@@ -14,6 +14,11 @@ Telegram bot that checks links before opening them.
 - Rejects overly long messages and URLs.
 - Does not show full URLs in replies.
 - Offers an optional Mini App VirusTotal scan only after the local scan.
+- Lets users report suspicious links from Telegram or the Mini App.
+- Marks a domain or URL hash as community suspicious after 5 reports.
+- Warns in group chats when suspicious or high-risk links are detected, without
+  deleting messages.
+- Provides `/privacy` with the report data handling policy.
 
 ## Environment Variables
 
@@ -29,6 +34,7 @@ Optional:
 WEBAPP_URL=https://your-app.up.railway.app
 VT_API_KEY=your_virustotal_api_key
 ADMIN_USER_IDS=123456789
+COMMUNITY_REPORTS_FILE=community_reports.json
 ```
 
 `WEBAPP_URL` is the public HTTPS URL for the Telegram Mini App. When set, `/start`
@@ -47,6 +53,13 @@ Telegram `user.id` `/myid
 ` as an admin. Use `/myid` in the bot to find the
 numeric ID for an account. Usernames such as `@example` are not matched for
 admin access and are ignored.
+
+`COMMUNITY_REPORTS_FILE` controls where community report counts are stored. The
+file stores report keys and counts only. A report key is the registered domain
+when available, such as `example.com`, or a SHA-256 URL hash fallback. Full URLs,
+paths, and query strings are not stored in the report file. Reporter identifiers
+are hashed per report key and used only to avoid counting duplicate reports from
+the same user.
 
 ## Setup
 
@@ -111,6 +124,17 @@ curl -X POST http://127.0.0.1:8000/api/scan \
 Advanced scans require `VT_API_KEY` on the backend. The API returns an Arabic
 summary only and does not expose the VirusTotal key or raw secret configuration.
 
+Report a suspicious URL:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/report \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/private/path","initData":"telegram-init-data"}'
+```
+
+The response includes the safe URL label, report count, threshold, and whether
+the item is now community suspicious.
+
 Mini App frontend:
 
 ```text
@@ -126,3 +150,4 @@ The frontend only sends the entered URL and Telegram Mini App `initData` to
 - A clean result does not guarantee that a link is safe.
 - VirusTotal free API limits can be reached during heavy use; the Mini App shows
   a friendly Arabic message when that happens.
+- Group protection currently warns only. It does not delete messages.

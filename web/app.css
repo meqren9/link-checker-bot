@@ -323,6 +323,7 @@ button:disabled {
 
 .result-actions {
   display: grid;
+  gap: 8px;
 }
 
 .advanced-button {
@@ -330,6 +331,13 @@ button:disabled {
   color: var(--accent-strong);
   background: var(--accent-soft);
   border: 1px solid rgba(15, 118, 110, 0.22);
+}
+
+.report-button {
+  width: 100%;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid rgba(180, 35, 24, 0.22);
 }
 
 .advanced-result {

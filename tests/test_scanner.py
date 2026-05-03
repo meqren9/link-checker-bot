@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from scanner import check_url, clean_url, extract_urls, local_scan_url, normalize_url, safe_url_label
 
@@ -65,6 +67,24 @@ class ScannerTests(unittest.TestCase):
         indicators = "\n".join(result["message_analysis"]["indicators"])
         self.assertIn("استعجال", indicators)
         self.assertIn("جائزة", indicators)
+
+    def test_local_scan_flags_community_suspicious_after_five_reports(self):
+        import community_reports
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            community_reports.REPORTS_FILE = Path(temp_dir) / "reports.json"
+
+            for reporter_id in range(5):
+                community_reports.add_report(
+                    "https://reported-example.test/private/path?token=secret",
+                    reporter_id=reporter_id,
+                )
+
+            result = local_scan_url("https://reported-example.test/private/path?token=secret")
+
+        self.assertGreaterEqual(result["risk_score"], 30)
+        self.assertTrue(result["community_report"]["community_suspicious"])
+        self.assertIn("تم الإبلاغ عنه من المجتمع عدة مرات كرابط مشبوه.", result["signals"])
 
     def test_local_scan_detects_typo_brand_impersonation_and_real_domain(self):
         result = local_scan_url("https://paypa1-secure-login.example.com/verify")

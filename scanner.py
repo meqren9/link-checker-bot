@@ -483,6 +483,8 @@ def build_expert_analysis(
 
 
 def local_scan_url(url: str, message_text: str = "") -> dict:
+    from community_reports import get_report_status
+
     normalized = normalize_url(url)
     parsed = urlsplit(normalized)
     hostname = parsed.hostname or ""
@@ -491,6 +493,7 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
     risk_score = 0
     signals = []
     message_analysis = analyze_message_context(message_text)
+    community_report = get_report_status(normalized)
 
     if not parsed.scheme or not parsed.netloc:
         risk_score += 40
@@ -548,6 +551,10 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
         risk_score += message_analysis["risk_score"]
         signals.append("نص الرسالة يحتوي عبارات شائعة في رسائل التصيد.")
 
+    if community_report["community_suspicious"]:
+        risk_score += 35
+        signals.append("تم الإبلاغ عنه من المجتمع عدة مرات كرابط مشبوه.")
+
     risk_score = min(risk_score, 100)
 
     if risk_score >= 60:
@@ -565,6 +572,7 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
         "risk_score": risk_score,
         "explanation": explanation,
         "signals": signals,
+        "community_report": community_report,
         "message_analysis": message_analysis,
         "expert_analysis": build_expert_analysis(
             normalized,

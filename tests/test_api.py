@@ -1,10 +1,12 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
 
 import api
-from api import ScanRequest, VirusTotalScanRequest, health, scan, scan_virustotal
+from api import ReportRequest, ScanRequest, VirusTotalScanRequest, health, report_suspicious_link, scan, scan_virustotal
 
 
 class ApiTests(unittest.TestCase):
@@ -127,6 +129,50 @@ class ApiTests(unittest.TestCase):
 
         self.assertTrue(response["ok"])
         self.assertEqual(response["vt"], summary)
+
+    def test_report_endpoint_counts_without_returning_full_url(self):
+        import community_reports
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            community_reports.REPORTS_FILE = Path(temp_dir) / "reports.json"
+
+            response = self.run_async(
+                report_suspicious_link(
+                    ReportRequest(
+                        url="https://example.com/private/path?token=secret",
+                        initData='user={"id":123}',
+                    )
+                )
+            )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["url"], "https://example.com/...")
+        self.assertEqual(response["report"]["count"], 1)
+        self.assertEqual(response["report"]["key_type"], "domain")
+        self.assertEqual(response["report"]["label"], "example.com")
+        self.assertNotIn("private", str(response))
+        self.assertNotIn("secret", str(response))
+
+    def test_report_endpoint_deduplicates_same_reporter(self):
+        import community_reports
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            community_reports.REPORTS_FILE = Path(temp_dir) / "reports.json"
+
+            first = self.run_async(
+                report_suspicious_link(
+                    ReportRequest(url="https://example.com/a", initData='user={"id":123}')
+                )
+            )
+            second = self.run_async(
+                report_suspicious_link(
+                    ReportRequest(url="https://example.com/b", initData='user={"id":123}')
+                )
+            )
+
+        self.assertEqual(first["report"]["count"], 1)
+        self.assertEqual(second["report"]["count"], 1)
+        self.assertTrue(second["report"]["duplicate"])
 
     def test_virustotal_summary_uses_24h_cache(self):
         api.vt_cache.clear()

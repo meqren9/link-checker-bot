@@ -2,19 +2,22 @@ import os
 import logging
 import time
 import threading
+import uuid
 from collections import defaultdict, deque
 from dotenv import load_dotenv
 from urllib.parse import quote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
 )
 import uvicorn
-from scanner import check_url, extract_urls, normalize_url, safe_url_label
+from community_reports import add_report_for_key, url_report_key
+from scanner import extract_urls, format_local_scan_result, local_scan_url, normalize_url, safe_url_label
 
 load_dotenv()
 
@@ -28,6 +31,7 @@ MAX_URL_LENGTH = 2048
 
 logger = logging.getLogger(__name__)
 user_scan_times = defaultdict(deque)
+pending_report_tokens = {}
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -66,12 +70,32 @@ def run_api_server():
     server.run()
 
 
-def share_bot_keyboard() -> InlineKeyboardMarkup:
+def report_token_for_url(url: str) -> str:
+    token = uuid.uuid4().hex[:16]
+    pending_report_tokens[token] = {
+        "created_at": time.time(),
+        "report_key": url_report_key(url),
+    }
+
+    if len(pending_report_tokens) > 500:
+        oldest_tokens = sorted(
+            pending_report_tokens,
+            key=lambda item: pending_report_tokens[item]["created_at"],
+        )
+        for old_token in oldest_tokens[:100]:
+            pending_report_tokens.pop(old_token, None)
+
+    return token
+
+
+def link_actions_keyboard(url: str) -> InlineKeyboardMarkup:
     share_text = quote("افحص أي رابط قبل فتحه عبر @SafeLiinkBot")
     share_url = f"https://t.me/share/url?text={share_text}"
+    token = report_token_for_url(url)
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📤 مشاركة البوت", url=share_url)]
+        [InlineKeyboardButton("🚩 بلّغ عن رابط مشبوه", callback_data=f"report:{token}")],
+        [InlineKeyboardButton("📤 مشاركة البوت", url=share_url)],
     ])
 
 
@@ -128,6 +152,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - تشغيل البوت\n"
         "/help - المساعدة\n\n"
         "/myid - عرض معرّفك واسم المستخدم\n\n"
+        "/privacy - الخصوصية والبلاغات\n\n"
         "أرسل رابطًا يبدأ بـ https:// أو www وسأفحصه لك.\n"
         "الفحص الحالي محلي وإرشادي فقط.\n"
         "لن أعرض الرابط كاملًا في الرد حفاظًا على الخصوصية."
@@ -136,6 +161,32 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(format_user_identity(update.effective_user))
+
+
+async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "الخصوصية والبلاغات:\n\n"
+        "- لا يعرض البوت الرابط كاملًا في الردود.\n"
+        "- عند البلاغ عن رابط، نحفظ مفتاحًا مختصرًا فقط: النطاق المسجل مثل example.com أو بصمة SHA-256 للرابط عند الحاجة.\n"
+        "- لا نحفظ المسار أو الاستعلام الكامل للرابط ضمن البلاغات.\n"
+        "- نستخدم بصمة مرتبطة بمفتاح البلاغ لمنع تكرار البلاغ من نفس الحساب، ولا نحفظ المعرّف الخام داخل سجل البلاغات.\n"
+        "- عند وصول رابط أو نطاق إلى 5 بلاغات، يظهر كمشبوه من المجتمع في الفحص.\n"
+        "- في المجموعات يرسل البوت تحذيرًا عند الروابط المشبوهة أو عالية الخطورة، ولا يحذف الرسائل حاليًا."
+    )
+
+
+def is_group_chat(update: Update) -> bool:
+    return bool(update.effective_chat and update.effective_chat.type in {"group", "supergroup"})
+
+
+def group_warning_text(url: str, result: dict) -> str:
+    return (
+        "⚠️ تحذير رابط مشبوه في المجموعة\n\n"
+        f"الرابط:\n{safe_url_label(url)}\n\n"
+        f"درجة الخطورة: {result['risk_score']}/100\n"
+        f"{result['explanation']}\n\n"
+        "لم أحذف الرسالة. تحققوا من المصدر قبل فتح الرابط أو إدخال أي بيانات."
+    )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,14 +226,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             break
 
-        result = check_url(url, message_text=text)
+        result = local_scan_url(url, message_text=text)
+
+        if is_group_chat(update) and result["risk_score"] >= 30:
+            await update.message.reply_text(
+                group_warning_text(url, result),
+                reply_markup=link_actions_keyboard(url),
+            )
+            continue
+
         await update.message.reply_text(
-            f"🔗 الرابط:\n{safe_url_label(url)}\n\n{result}",
-            reply_markup=share_bot_keyboard(),
+            f"🔗 الرابط:\n{safe_url_label(url)}\n\n{format_local_scan_result(result)}",
+            reply_markup=link_actions_keyboard(url),
         )
 
     if len(urls) > 3:
         await update.message.reply_text("فحصت أول 3 روابط فقط حتى لا تطول العملية.")
+
+
+async def report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if not data.startswith("report:"):
+        return
+
+    token = data.removeprefix("report:")
+    pending = pending_report_tokens.get(token)
+
+    if not pending:
+        await query.message.reply_text("تعذر تسجيل البلاغ. افحص الرابط مرة أخرى ثم أعد البلاغ.")
+        return
+
+    reporter_id = update.effective_user.id if update.effective_user else update.effective_chat.id
+    report = add_report_for_key(pending["report_key"], reporter_id=reporter_id)
+
+    if report["duplicate"]:
+        await query.message.reply_text("تم تسجيل بلاغك سابقًا لهذا الرابط أو النطاق.")
+        return
+
+    if report["community_suspicious"]:
+        await query.message.reply_text(
+            "تم تسجيل البلاغ. وصل هذا الرابط أو النطاق إلى حد البلاغات وسيظهر كمشبوه من المجتمع."
+        )
+        return
+
+    await query.message.reply_text(
+        f"تم تسجيل البلاغ. عدد البلاغات الحالي: {report['count']}/{report['threshold']}."
+    )
 
 
 def main():
@@ -198,6 +290,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("myid", myid_command))
+    app.add_handler(CommandHandler("privacy", privacy_command))
+    app.add_handler(CallbackQueryHandler(report_callback, pattern=r"^report:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot is running")

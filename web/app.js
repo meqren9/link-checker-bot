@@ -17,6 +17,7 @@ const ERROR_MESSAGES = {
 let lastScannedUrl = "";
 let advancedButton;
 let advancedBox;
+let reportButton;
 
 if (telegram) {
   telegram.ready();
@@ -214,12 +215,18 @@ function renderResult(response) {
   advancedButton.textContent = "🔬 فحص متقدم";
   advancedButton.addEventListener("click", runAdvancedScan);
 
+  reportButton = document.createElement("button");
+  reportButton.className = "report-button";
+  reportButton.type = "button";
+  reportButton.textContent = "🚩 بلّغ عن رابط مشبوه";
+  reportButton.addEventListener("click", reportSuspiciousLink);
+
   advancedBox = document.createElement("section");
   advancedBox.className = "advanced-result";
   advancedBox.hidden = true;
   advancedBox.setAttribute("aria-live", "polite");
 
-  actions.append(advancedButton);
+  actions.append(reportButton, advancedButton);
   resultBox.append(card, actions, advancedBox);
 }
 
@@ -366,5 +373,47 @@ async function runAdvancedScan() {
     setStatus(translateError(error.message), { isError: true });
   } finally {
     advancedButton.disabled = false;
+  }
+}
+
+async function reportSuspiciousLink() {
+  const url = cleanPastedUrl(lastScannedUrl || input.value);
+  if (!url) {
+    setStatus("أدخل رابطًا للفحص.", { isError: true });
+    return;
+  }
+
+  reportButton.disabled = true;
+  setStatus("جاري تسجيل البلاغ...", { isLoading: true });
+
+  try {
+    const response = await fetch("/api/report", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        initData: telegram?.initData || "",
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(translateError(data.detail || "تعذر تسجيل البلاغ."));
+    }
+
+    const report = data.report || {};
+    if (report.duplicate) {
+      setStatus("تم تسجيل بلاغك سابقًا لهذا الرابط أو النطاق.");
+    } else if (report.community_suspicious) {
+      setStatus("تم تسجيل البلاغ. وصل الرابط أو النطاق إلى حد البلاغات وسيظهر كمشبوه من المجتمع.");
+    } else {
+      setStatus(`تم تسجيل البلاغ. عدد البلاغات الحالي: ${report.count}/${report.threshold}.`);
+    }
+  } catch (error) {
+    setStatus(translateError(error.message), { isError: true });
+  } finally {
+    reportButton.disabled = false;
   }
 }

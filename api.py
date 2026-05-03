@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StrictStr
 
+from community_reports import add_report
 from scanner import clean_url, extract_urls, local_scan_url, normalize_url, safe_url_label
 
 
@@ -33,6 +34,11 @@ class ScanRequest(BaseModel):
 
 
 class VirusTotalScanRequest(BaseModel):
+    url: StrictStr
+    initData: StrictStr
+
+
+class ReportRequest(BaseModel):
     url: StrictStr
     initData: StrictStr
 
@@ -68,6 +74,23 @@ def validate_scan_input(url: str, init_data: str) -> str:
         raise HTTPException(status_code=400, detail="url must be a valid http(s) URL")
 
     return normalized_url
+
+
+def reporter_id_from_init_data(init_data: str) -> str:
+    params = parse_qs(init_data, keep_blank_values=True)
+    users = params.get("user") or []
+
+    if users:
+        try:
+            user = json.loads(users[0])
+        except json.JSONDecodeError:
+            user = {}
+
+        user_id = user.get("id")
+        if user_id:
+            return f"telegram-user:{user_id}"
+
+    return f"init-data:{init_data}"
 
 
 def vt_url_id(url: str) -> str:
@@ -214,3 +237,18 @@ def scan_virustotal_response(normalized_url: str) -> dict:
 async def scan_virustotal(payload: VirusTotalScanRequest) -> dict:
     normalized_url = validate_scan_input(payload.url, payload.initData)
     return scan_virustotal_response(normalized_url)
+
+
+@app.post("/api/report")
+async def report_suspicious_link(payload: ReportRequest) -> dict:
+    normalized_url = validate_scan_input(payload.url, payload.initData)
+    report = add_report(
+        normalized_url,
+        reporter_id=reporter_id_from_init_data(payload.initData),
+    )
+
+    return {
+        "ok": True,
+        "url": safe_url_label(normalized_url),
+        "report": report,
+    }
