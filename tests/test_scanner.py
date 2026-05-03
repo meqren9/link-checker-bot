@@ -122,6 +122,50 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("paypal.com", indicators)
         self.assertIn("secure-login", indicators)
 
+    def test_local_scan_flags_saudi_trusted_brand_on_unofficial_domain_as_high_risk(self):
+        cases = (
+            ("Absher", "https://absher-login.example.com/verify", "أبشر"),
+            ("Al Rajhi", "https://example.com/pay", "مصرف الراجحي"),
+            ("STC", "https://mystc-bill.example.net/pay", "stc"),
+            ("SPL", "https://delivery.example.net/track", "البريد السعودي SPL"),
+            ("Nafath", "https://example.org/login", "سجل دخول عبر نفاذ"),
+            ("Qiwa", "https://example.org/contract", "منصة قوى"),
+            ("Mudad", "https://example.org/wages", "منصة مدد"),
+        )
+
+        for brand, url, message in cases:
+            with self.subTest(brand=brand):
+                result = local_scan_url(url, message_text=message)
+                indicators = "\n".join(result["expert_analysis"]["indicators"])
+
+                self.assertGreaterEqual(result["risk_score"], 60)
+                self.assertIn(
+                    "ظهر اسم جهة سعودية موثوقة، لكن النطاق ليس ضمن القائمة الرسمية الصغيرة.",
+                    result["signals"],
+                )
+                self.assertIn("احتمال تقمص جهة سعودية موثوقة", indicators)
+                self.assertIn("لا يثبت الاحتيال وحده", indicators)
+
+    def test_local_scan_does_not_flag_saudi_trusted_brand_on_official_domains(self):
+        cases = (
+            ("https://www.absher.sa/wps/portal/individuals", "أبشر"),
+            ("https://www.alrajhibank.com/login", "مصرف الراجحي"),
+            ("https://www.stc.com.sa/content/stc/sa/ar", "stc"),
+            ("https://splonline.com.sa/en/", "البريد السعودي SPL"),
+            ("https://www.iam.gov.sa/policy.html", "نفاذ"),
+            ("https://auth.qiwa.sa/", "منصة قوى"),
+            ("https://mudad.com.sa/system-selection", "مدد"),
+        )
+
+        for url, message in cases:
+            with self.subTest(url=url):
+                result = local_scan_url(url, message_text=message)
+
+                self.assertNotIn(
+                    "ظهر اسم جهة سعودية موثوقة، لكن النطاق ليس ضمن القائمة الرسمية الصغيرة.",
+                    result["signals"],
+                )
+
     def test_check_url_returns_arabic_result_text(self):
         result = check_url("https://example.com")
 

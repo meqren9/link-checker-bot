@@ -170,6 +170,7 @@ URL_SHORTENERS = {
 SHORTENER_ADVICE = "تحقق من الوجهة قبل الفتح"
 MULTI_PART_PUBLIC_SUFFIXES = {
     "com.sa",
+    "gov.sa",
     "net.sa",
     "org.sa",
     "co.uk",
@@ -223,6 +224,43 @@ BRAND_DOMAIN_HINTS = {
     "alahli": ("alahli.com",),
     "riyadbank": ("riyadbank.com",),
     "alinma": ("alinma.com",),
+}
+SAUDI_TRUSTED_BRANDS = {
+    "absher": {
+        "label": "أبشر Absher",
+        "aliases": ("absher", "أبشر", "ابشر"),
+        "official_domains": ("absher.sa",),
+    },
+    "alrajhi": {
+        "label": "مصرف الراجحي Al Rajhi",
+        "aliases": ("alrajhi", "al rajhi", "الراجحي", "مصرف الراجحي"),
+        "official_domains": ("alrajhibank.com", "alrajhibank.com.sa"),
+    },
+    "stc": {
+        "label": "stc",
+        "aliases": ("stc", "mystc", "اس تي سي", "إس تي سي", "الاتصالات السعودية"),
+        "official_domains": ("stc.com.sa",),
+    },
+    "spl": {
+        "label": "البريد السعودي | سبل SPL",
+        "aliases": ("spl", "saudi post", "saudi-post", "saudipost", "البريد السعودي", "سبل"),
+        "official_domains": ("splonline.com.sa",),
+    },
+    "nafath": {
+        "label": "نفاذ Nafath",
+        "aliases": ("nafath", "نفاذ", "النفاذ الوطني"),
+        "official_domains": ("iam.gov.sa",),
+    },
+    "qiwa": {
+        "label": "قوى Qiwa",
+        "aliases": ("qiwa", "قوى", "منصة قوى"),
+        "official_domains": ("qiwa.sa",),
+    },
+    "mudad": {
+        "label": "مدد Mudad",
+        "aliases": ("mudad", "مدد", "منصة مدد"),
+        "official_domains": ("mudad.com.sa",),
+    },
 }
 
 
@@ -311,6 +349,63 @@ def official_domain_for_brand(brand: str) -> str:
     return BRAND_DOMAIN_HINTS.get(brand, (f"{brand}.com",))[0]
 
 
+def is_official_domain(hostname: str, official_domains: tuple[str, ...]) -> bool:
+    lowered_hostname = hostname.lower().strip(".")
+    root_domain = registered_domain(lowered_hostname)
+
+    return any(
+        lowered_hostname == official
+        or root_domain == official
+        or lowered_hostname.endswith(f".{official}")
+        for official in official_domains
+    )
+
+
+def text_contains_alias(text: str, alias: str) -> bool:
+    lowered_text = (text or "").lower()
+    lowered_alias = alias.lower()
+
+    if not lowered_alias:
+        return False
+
+    if re.fullmatch(r"[a-z0-9][a-z0-9 -]*[a-z0-9]|[a-z0-9]", lowered_alias):
+        compact_pattern = re.escape(lowered_alias).replace(r"\ ", r"[\s-]+")
+        return bool(
+            re.search(
+                rf"(?<![a-z0-9]){compact_pattern}(?![a-z0-9])",
+                lowered_text,
+            )
+        )
+
+    return lowered_alias in lowered_text
+
+
+def find_saudi_trusted_domain_impersonation(hostname: str, message_text: str = "") -> list[dict]:
+    context = " ".join(part for part in (hostname, message_text) if part)
+    root_domain = registered_domain(hostname)
+    found = []
+
+    for brand in SAUDI_TRUSTED_BRANDS.values():
+        if is_official_domain(hostname, brand["official_domains"]):
+            continue
+
+        matched_alias = next(
+            (alias for alias in brand["aliases"] if text_contains_alias(context, alias)),
+            "",
+        )
+        if not matched_alias:
+            continue
+
+        found.append({
+            "brand": brand["label"],
+            "matched_alias": matched_alias,
+            "official_domains": brand["official_domains"],
+            "domain": root_domain,
+        })
+
+    return found
+
+
 def find_brand_impersonation(hostname: str) -> list[dict]:
     lowered_hostname = hostname.lower()
     normalized_hostname = lowered_hostname.replace("-", "")
@@ -326,12 +421,7 @@ def find_brand_impersonation(hostname: str) -> list[dict]:
             + [levenshtein_distance(label, brand) for label in hostname_labels]
         )
         typosquat = len(brand) >= 5 and 0 < typo_distance <= 2
-        official_match = any(
-            lowered_hostname == official
-            or root_domain == official
-            or lowered_hostname.endswith(f".{official}")
-            for official in official_domains
-        )
+        official_match = is_official_domain(lowered_hostname, official_domains)
 
         if not official_match and (brand_in_host or typosquat):
             reason = "اسم العلامة ظاهر داخل نطاق غير رسمي"
@@ -413,6 +503,7 @@ def build_expert_analysis(
     risk_score: int,
     signals: list[str],
     message_analysis: dict | None = None,
+    saudi_impersonated_brands: list[dict] | None = None,
 ) -> dict:
     parsed = urlsplit(normalized_url)
     hostname = parsed.hostname or ""
@@ -422,6 +513,7 @@ def build_expert_analysis(
     risky_extension = has_risky_file_extension(parsed.path)
     phishing_keywords = [word for word in PHISHING_KEYWORDS if word in lowered_url]
     impersonated_brands = find_brand_impersonation(hostname)
+    saudi_impersonated_brands = saudi_impersonated_brands or []
     suspicious_domain_phrases = find_suspicious_domain_phrases(hostname)
     indicators = []
 
@@ -438,6 +530,16 @@ def build_expert_analysis(
                 f"النطاق {item['domain']} يشبه {item['brand']}، "
                 f"والنطاق الرسمي المتوقع هو {item['official_domain']}. "
                 f"{item['reason']}."
+            )
+
+    if saudi_impersonated_brands:
+        for item in saudi_impersonated_brands[:3]:
+            official_domains = "، ".join(item["official_domains"])
+            indicators.append(
+                "احتمال تقمص جهة سعودية موثوقة: "
+                f"ظهر اسم {item['brand']} أو ما يشبهه، لكن النطاق الحالي "
+                f"{item['domain'] or 'غير واضح'} ليس ضمن القائمة الرسمية الصغيرة "
+                f"({official_domains}). هذا مؤشر خطر مرتفع، لكنه لا يثبت الاحتيال وحده."
             )
 
     if suspicious_domain_phrases:
@@ -504,6 +606,7 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
     signals = []
     message_analysis = analyze_message_context(message_text)
     community_report = get_report_status(normalized)
+    saudi_impersonated_brands = find_saudi_trusted_domain_impersonation(hostname, message_text)
 
     if not parsed.scheme or not parsed.netloc:
         risk_score += 40
@@ -532,6 +635,12 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
     if find_brand_impersonation(hostname):
         risk_score += 25
         signals.append("قد يحاول الرابط تقمص علامة تجارية في نطاق غير رسمي.")
+
+    if saudi_impersonated_brands:
+        risk_score += 60
+        signals.append(
+            "ظهر اسم جهة سعودية موثوقة، لكن النطاق ليس ضمن القائمة الرسمية الصغيرة."
+        )
 
     if find_suspicious_domain_phrases(hostname):
         risk_score += 15
@@ -593,6 +702,7 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
             risk_score,
             signals,
             message_analysis,
+            saudi_impersonated_brands,
         ),
     }
 
