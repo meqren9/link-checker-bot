@@ -11,7 +11,7 @@ const ERROR_MESSAGES = {
   "url must be a valid http(s) URL": "أدخل رابطًا صحيحًا يبدأ بـ http أو https.",
   "vt api key missing": "الفحص المتقدم غير مفعّل حاليًا.",
   "vt api key invalid": "تعذر تشغيل الفحص المتقدم حاليًا.",
-  "vt rate limit reached": "وصل الفحص المتقدم للحد المجاني مؤقتًا. جرّب لاحقًا.",
+  "vt rate limit reached": "⚠️ فحص VirusTotal غير متاح حالياً",
   "vt request failed": "تعذر الاتصال بخدمة الفحص المتقدم. حاول لاحقًا.",
 };
 let lastScannedUrl = "";
@@ -172,7 +172,6 @@ function renderAdvancedResult(summary) {
   }
 
   const stats = summary.stats || {};
-  const total = Number(stats.total || 0);
   const cachedText = summary.cached ? "نتيجة محفوظة خلال آخر 24 ساعة" : "نتيجة جديدة";
 
   advancedBox.hidden = false;
@@ -186,7 +185,7 @@ function renderAdvancedResult(summary) {
 
   const title = document.createElement("h2");
   title.className = "result-title";
-  title.textContent = summary.title || "ملخص VirusTotal";
+  title.textContent = "🔬 نتيجة VirusTotal";
 
   const badge = document.createElement("div");
   badge.className = `risk ${vtLevelClass(summary.level)}`.trim();
@@ -199,30 +198,26 @@ function renderAdvancedResult(summary) {
   top.append(title, badge);
   card.append(top, message);
 
-  if (total > 0) {
-    const statsList = document.createElement("dl");
-    statsList.className = "vt-stats";
+  const statsList = document.createElement("dl");
+  statsList.className = "vt-stats";
 
-    const items = [
-      ["خطر", stats.malicious || 0],
-      ["مشبوه", stats.suspicious || 0],
-      ["آمن", stats.harmless || 0],
-      ["غير محسوم", stats.undetected || 0],
-    ];
+  const items = [
+    ["خطر", stats.malicious || 0],
+    ["مشبوه", stats.suspicious || 0],
+    ["آمن", stats.harmless || 0],
+  ];
 
-    for (const [label, value] of items) {
-      const item = document.createElement("div");
-      const term = document.createElement("dt");
-      const description = document.createElement("dd");
-      term.textContent = label;
-      description.textContent = value;
-      item.append(term, description);
-      statsList.append(item);
-    }
-
-    card.append(statsList);
+  for (const [label, value] of items) {
+    const item = document.createElement("div");
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value;
+    item.append(term, description);
+    statsList.append(item);
   }
 
+  card.append(statsList);
   advancedBox.append(card);
 }
 
@@ -291,7 +286,7 @@ async function runAdvancedScan() {
   setStatus("جاري الفحص المتقدم...", { isLoading: true });
 
   try {
-    const response = await fetch("/api/scan/vt", {
+    const response = await fetch("/api/scan", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -299,6 +294,7 @@ async function runAdvancedScan() {
       body: JSON.stringify({
         url,
         initData: telegram?.initData || "",
+        advanced: true,
       }),
     });
 

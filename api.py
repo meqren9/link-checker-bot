@@ -29,6 +29,7 @@ app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
 class ScanRequest(BaseModel):
     url: StrictStr
     initData: StrictStr
+    advanced: bool = False
 
 
 class VirusTotalScanRequest(BaseModel):
@@ -182,6 +183,9 @@ def get_vt_summary(normalized_url: str, api_key: str) -> dict:
 async def scan(payload: ScanRequest) -> dict:
     normalized_url = validate_scan_input(payload.url, payload.initData)
 
+    if payload.advanced:
+        return scan_virustotal_response(normalized_url)
+
     return {
         "ok": True,
         "url": safe_url_label(normalized_url),
@@ -189,9 +193,7 @@ async def scan(payload: ScanRequest) -> dict:
     }
 
 
-@app.post("/api/scan/vt")
-async def scan_virustotal(payload: VirusTotalScanRequest) -> dict:
-    normalized_url = validate_scan_input(payload.url, payload.initData)
+def scan_virustotal_response(normalized_url: str) -> dict:
     api_key = os.getenv("VT_API_KEY", "").strip()
 
     if not api_key:
@@ -204,3 +206,9 @@ async def scan_virustotal(payload: VirusTotalScanRequest) -> dict:
         "url": safe_url_label(normalized_url),
         "vt": summary,
     }
+
+
+@app.post("/api/scan/vt")
+async def scan_virustotal(payload: VirusTotalScanRequest) -> dict:
+    normalized_url = validate_scan_input(payload.url, payload.initData)
+    return scan_virustotal_response(normalized_url)

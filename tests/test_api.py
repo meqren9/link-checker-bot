@@ -48,10 +48,11 @@ class ApiTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(HTTPException) as context:
                 self.run_async(
-                    scan_virustotal(
-                        VirusTotalScanRequest(
+                    scan(
+                        ScanRequest(
                             url="https://example.com",
                             initData="query=data",
+                            advanced=True,
                         )
                     )
                 )
@@ -72,6 +73,33 @@ class ApiTests(unittest.TestCase):
         with patch.dict("os.environ", {"VT_API_KEY": "server-secret"}):
             with patch("api.get_vt_summary", return_value=summary) as mocked_summary:
                 response = self.run_async(
+                    scan(
+                        ScanRequest(
+                            url="https://example.com/private/path",
+                            initData="query=data",
+                            advanced=True,
+                        )
+                    )
+                )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["url"], "https://example.com/...")
+        self.assertEqual(response["vt"], summary)
+        mocked_summary.assert_called_once_with("https://example.com/private/path", "server-secret")
+
+    def test_legacy_virustotal_endpoint_still_works(self):
+        summary = {
+            "status": "ready",
+            "level": "low",
+            "title": "لا توجد مؤشرات متقدمة واضحة",
+            "message": "لم ترصد VirusTotal مؤشرات خطر واضحة.",
+            "stats": {"total": 10},
+            "cached": False,
+        }
+
+        with patch.dict("os.environ", {"VT_API_KEY": "server-secret"}):
+            with patch("api.get_vt_summary", return_value=summary):
+                response = self.run_async(
                     scan_virustotal(
                         VirusTotalScanRequest(
                             url="https://example.com/private/path",
@@ -81,9 +109,7 @@ class ApiTests(unittest.TestCase):
                 )
 
         self.assertTrue(response["ok"])
-        self.assertEqual(response["url"], "https://example.com/...")
         self.assertEqual(response["vt"], summary)
-        mocked_summary.assert_called_once_with("https://example.com/private/path", "server-secret")
 
     def test_virustotal_summary_uses_24h_cache(self):
         api.vt_cache.clear()

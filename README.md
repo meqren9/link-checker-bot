@@ -100,8 +100,16 @@ curl -X POST http://127.0.0.1:8000/api/scan/vt \
   -d '{"url":"https://example.com","initData":"telegram-init-data"}'
 ```
 
-This endpoint requires `VT_API_KEY` on the backend. It returns an Arabic summary
-only and does not expose the VirusTotal key or raw secret configuration.
+New Mini App calls should use the main scan endpoint with `advanced=true`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/scan \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","initData":"telegram-init-data","advanced":true}'
+```
+
+Advanced scans require `VT_API_KEY` on the backend. The API returns an Arabic
+summary only and does not expose the VirusTotal key or raw secret configuration.
 
 Mini App frontend:
 
