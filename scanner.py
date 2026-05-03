@@ -155,6 +155,7 @@ SUSPICIOUS_DOMAIN_PHRASES = (
 )
 URL_SHORTENERS = {
     "bit.ly",
+    "bitly.com",
     "tinyurl.com",
     "t.co",
     "goo.gl",
@@ -166,6 +167,7 @@ URL_SHORTENERS = {
     "shorturl.at",
     "lnkd.in",
 }
+SHORTENER_ADVICE = "تحقق من الوجهة قبل الفتح"
 MULTI_PART_PUBLIC_SUFFIXES = {
     "com.sa",
     "net.sa",
@@ -256,6 +258,10 @@ def registered_domain(hostname: str) -> str:
         return ".".join(parts[-3:])
 
     return ".".join(parts[-2:])
+
+
+def is_url_shortener(hostname: str) -> bool:
+    return registered_domain(hostname) in URL_SHORTENERS
 
 
 def extract_urls(text: str) -> list[str]:
@@ -452,8 +458,11 @@ def build_expert_analysis(
     if has_ip_hostname(hostname):
         indicators.append("الرابط يستخدم عنوان IP بدل نطاق واضح يمكن التحقق من هويته.")
 
-    if root_domain in URL_SHORTENERS:
-        indicators.append("الرابط يستخدم خدمة اختصار، وهذا يخفي الوجهة النهائية قبل الفتح.")
+    if is_url_shortener(hostname):
+        indicators.append(
+            "هذا رابط مختصر. خدمة الاختصار تخفي الوجهة النهائية قبل الفتح. "
+            f"{SHORTENER_ADVICE}."
+        )
 
     if risky_extension:
         indicators.append(f"الرابط يشير إلى ملف بامتداد عالي المخاطر: {risky_extension}")
@@ -489,6 +498,7 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
     parsed = urlsplit(normalized)
     hostname = parsed.hostname or ""
     root_domain = registered_domain(hostname)
+    shortener_domain = root_domain if is_url_shortener(hostname) else ""
     tld = hostname_tld(hostname)
     risk_score = 0
     signals = []
@@ -539,9 +549,10 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
         risk_score += 20
         signals.append("النطاق الفرعي قد يكون مضللًا ويخفي النطاق الحقيقي.")
 
-    if root_domain in URL_SHORTENERS:
+    if shortener_domain:
         risk_score += 20
-        signals.append("الرابط يستخدم خدمة اختصار تخفي الوجهة النهائية.")
+        signals.append(f"هذا رابط مختصر عبر {shortener_domain}.")
+        signals.append(SHORTENER_ADVICE)
 
     if has_risky_file_extension(parsed.path):
         risk_score += 25
@@ -572,6 +583,9 @@ def local_scan_url(url: str, message_text: str = "") -> dict:
         "risk_score": risk_score,
         "explanation": explanation,
         "signals": signals,
+        "is_shortened_url": bool(shortener_domain),
+        "shortener_domain": shortener_domain,
+        "shortener_advice": SHORTENER_ADVICE if shortener_domain else "",
         "community_report": community_report,
         "message_analysis": message_analysis,
         "expert_analysis": build_expert_analysis(
@@ -591,6 +605,16 @@ def format_local_scan_result(result: dict) -> str:
     expert_indicator_lines = "\n".join(f"- {indicator}" for indicator in expert_indicators[:5])
     community_report = result.get("community_report") or {}
     community_text = ""
+    shortener_text = ""
+
+    if result.get("is_shortened_url"):
+        shortener_domain = result.get("shortener_domain") or "خدمة اختصار"
+        shortener_text = (
+            "الرابط المختصر:\n"
+            f"- هذا رابط مختصر عبر {shortener_domain}.\n"
+            f"- {result.get('shortener_advice') or SHORTENER_ADVICE}\n"
+            "- لا أفتح الروابط غير الآمنة تلقائيًا.\n\n"
+        )
 
     if int(community_report.get("count") or 0) > 0:
         community_status = "مصنف كمشبوه من المجتمع" if community_report.get("community_suspicious") else "بلاغات موجودة"
@@ -604,6 +628,7 @@ def format_local_scan_result(result: dict) -> str:
         f"{result['verdict']}\n"
         f"درجة الخطورة: {result['risk_score']}/100\n\n"
         f"{result['explanation']}\n\n"
+        f"{shortener_text}"
         f"{community_text}"
         "الفحص المحلي:\n"
         f"{signal_lines}\n\n"

@@ -116,6 +116,8 @@ function renderResult(response) {
   const expertIndicators = Array.isArray(expert.indicators) ? expert.indicators : [];
   const messageAnalysis = scan.message_analysis || {};
   const communityReport = scan.community_report || {};
+  const isShortenedUrl = Boolean(scan.is_shortened_url);
+  const shortenerAdvice = scan.shortener_advice || "تحقق من الوجهة قبل الفتح";
 
   resultBox.hidden = false;
   resultBox.replaceChildren();
@@ -135,7 +137,7 @@ function renderResult(response) {
 
   const statusAdvice = document.createElement("p");
   statusAdvice.className = "result-status-advice";
-  statusAdvice.textContent = resultAdvice(score);
+  statusAdvice.textContent = isShortenedUrl ? shortenerAdvice : resultAdvice(score);
 
   const scoreBadge = document.createElement("div");
   scoreBadge.className = "score-badge";
@@ -223,6 +225,27 @@ function renderResult(response) {
 
   signalsCard.append(signalsTitle, list);
   card.append(statusPanel, url, signalsCard);
+
+  if (isShortenedUrl) {
+    const shortenerCard = document.createElement("section");
+    shortenerCard.className = "expert-card";
+
+    const shortenerTitle = document.createElement("h3");
+    shortenerTitle.className = "signals-title";
+    shortenerTitle.textContent = "رابط مختصر";
+
+    const shortenerSummary = document.createElement("p");
+    shortenerSummary.className = "expert-summary";
+    shortenerSummary.textContent = `هذا رابط مختصر عبر ${scan.shortener_domain || "خدمة اختصار"}.`;
+
+    const shortenerRecommendation = document.createElement("p");
+    shortenerRecommendation.className = "expert-recommendation";
+    shortenerRecommendation.textContent = `${shortenerAdvice}. لا أفتح الروابط غير الآمنة تلقائيًا.`;
+
+    shortenerCard.append(shortenerTitle, shortenerSummary, shortenerRecommendation);
+    card.append(shortenerCard);
+  }
+
   if (messageCard) {
     card.append(messageCard);
   }

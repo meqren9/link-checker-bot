@@ -48,6 +48,15 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response["url"], "https://www.example.com/...")
 
+    def test_scan_returns_shortener_metadata(self):
+        response = self.run_async(
+            scan(ScanRequest(url="https://tinyurl.com/example", initData="query=data"))
+        )
+
+        self.assertTrue(response["scan"]["is_shortened_url"])
+        self.assertEqual(response["scan"]["shortener_domain"], "tinyurl.com")
+        self.assertEqual(response["scan"]["shortener_advice"], "تحقق من الوجهة قبل الفتح")
+
     def test_scan_accepts_full_message_with_link_context(self):
         response = self.run_async(
             scan(

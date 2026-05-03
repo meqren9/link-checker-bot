@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from scanner import check_url, clean_url, extract_urls, local_scan_url, normalize_url, safe_url_label
+from scanner import check_url, clean_url, extract_urls, is_url_shortener, local_scan_url, normalize_url, safe_url_label
 
 
 class ScannerTests(unittest.TestCase):
@@ -51,6 +51,20 @@ class ScannerTests(unittest.TestCase):
         indicators = "\n".join(result["expert_analysis"]["indicators"])
         self.assertIn("النطاق الفرعي", indicators)
         self.assertIn("اختصار", indicators)
+
+    def test_shortener_detection_handles_common_services(self):
+        for hostname in ("bit.ly", "www.tinyurl.com", "t.co", "cutt.ly"):
+            with self.subTest(hostname=hostname):
+                self.assertTrue(is_url_shortener(hostname))
+
+    def test_local_scan_marks_shortened_url_with_safe_advice(self):
+        result = local_scan_url("https://cutt.ly/example")
+
+        self.assertTrue(result["is_shortened_url"])
+        self.assertEqual(result["shortener_domain"], "cutt.ly")
+        self.assertEqual(result["shortener_advice"], "تحقق من الوجهة قبل الفتح")
+        self.assertIn("هذا رابط مختصر عبر cutt.ly.", result["signals"])
+        self.assertIn("تحقق من الوجهة قبل الفتح", result["signals"])
 
     def test_local_scan_does_not_flag_official_brand_domain_as_impersonation(self):
         result = local_scan_url("https://paypal.com/login")
@@ -115,6 +129,14 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("الفحص المحلي:", result)
         self.assertIn("🧠 تحليل خبير الأمن", result)
         self.assertIn("🧭 ماذا تفعل الآن؟", result)
+
+    def test_check_url_explains_shortened_link_without_opening_it(self):
+        result = check_url("https://bit.ly/example")
+
+        self.assertIn("الرابط المختصر:", result)
+        self.assertIn("هذا رابط مختصر عبر bit.ly.", result)
+        self.assertIn("تحقق من الوجهة قبل الفتح", result)
+        self.assertIn("لا أفتح الروابط غير الآمنة تلقائيًا.", result)
 
 
 if __name__ == "__main__":
