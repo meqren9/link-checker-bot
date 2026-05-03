@@ -86,6 +86,19 @@ class ScannerTests(unittest.TestCase):
         self.assertTrue(result["community_report"]["community_suspicious"])
         self.assertIn("تم الإبلاغ عنه من المجتمع عدة مرات كرابط مشبوه.", result["signals"])
 
+    def test_formatted_result_shows_existing_community_reports(self):
+        import community_reports
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            community_reports.REPORTS_FILE = Path(temp_dir) / "reports.json"
+            community_reports.add_report("https://example.com/private/path", reporter_id=1)
+
+            result = check_url("https://example.com/private/path")
+
+        self.assertIn("بلاغات المجتمع:", result)
+        self.assertIn("1/5", result)
+        self.assertNotIn("private", result)
+
     def test_local_scan_detects_typo_brand_impersonation_and_real_domain(self):
         result = local_scan_url("https://paypa1-secure-login.example.com/verify")
 

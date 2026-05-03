@@ -103,6 +103,7 @@ function renderResult(response) {
   const expert = scan.expert_analysis || {};
   const expertIndicators = Array.isArray(expert.indicators) ? expert.indicators : [];
   const messageAnalysis = scan.message_analysis || {};
+  const communityReport = scan.community_report || {};
 
   resultBox.hidden = false;
   resultBox.replaceChildren();
@@ -204,6 +205,25 @@ function renderResult(response) {
   if (messageCard) {
     card.append(messageCard);
   }
+
+  if (Number(communityReport.count || 0) > 0) {
+    const communityCard = document.createElement("section");
+    communityCard.className = "expert-card";
+
+    const communityTitle = document.createElement("h3");
+    communityTitle.className = "signals-title";
+    communityTitle.textContent = "بلاغات المجتمع";
+
+    const communitySummary = document.createElement("p");
+    communitySummary.className = "expert-summary";
+    communitySummary.textContent = communityReport.community_suspicious
+      ? `مصنف كمشبوه من المجتمع: ${communityReport.count}/${communityReport.threshold}`
+      : `بلاغات موجودة: ${communityReport.count}/${communityReport.threshold}`;
+
+    communityCard.append(communityTitle, communitySummary);
+    card.append(communityCard);
+  }
+
   card.append(expertCard);
 
   const actions = document.createElement("div");
@@ -218,7 +238,7 @@ function renderResult(response) {
   reportButton = document.createElement("button");
   reportButton.className = "report-button";
   reportButton.type = "button";
-  reportButton.textContent = "🚩 بلّغ عن رابط مشبوه";
+  reportButton.textContent = "🚩 بلّغ عن رابط";
   reportButton.addEventListener("click", reportSuspiciousLink);
 
   advancedBox = document.createElement("section");

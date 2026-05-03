@@ -16,8 +16,12 @@ Telegram bot that checks links before opening them.
 - Offers an optional Mini App VirusTotal scan only after the local scan.
 - Lets users report suspicious links from Telegram or the Mini App.
 - Marks a domain or URL hash as community suspicious after 5 reports.
-- Warns in group chats when suspicious or high-risk links are detected, without
-  deleting messages.
+- Shows existing community report counts in scan results.
+- Provides admin commands to list reports and clear a domain report.
+- Warns in group chats when high-risk links or community-reported links are
+  detected.
+- Can optionally delete suspicious group messages when enabled and the bot is a
+  group admin.
 - Provides `/privacy` with the report data handling policy.
 
 ## Environment Variables
@@ -33,6 +37,7 @@ Optional:
 ```env
 WEBAPP_URL=https://your-app.up.railway.app
 VT_API_KEY=your_virustotal_api_key
+DELETE_SUSPICIOUS=false
 ADMIN_USER_IDS=123456789
 COMMUNITY_REPORTS_FILE=community_reports.json
 ```
@@ -47,6 +52,11 @@ local scan first, then calls VirusTotal only when the user clicks the advanced
 scan button. Results are cached in memory for 24 hours to reduce repeated calls
 and stay friendly to free API limits.
 
+`DELETE_SUSPICIOUS` defaults to `false`. When set to `true`, group safety still
+acts only on high-confidence cases: local scan score `60` or higher, or
+community reports at the configured threshold. The bot deletes the message only
+if it is an admin in that group; otherwise it sends the Arabic warning message.
+
 `ADMIN_USER_IDS` is a comma-separated list of numeric Telegram `user.id` values.
 Users in this list bypass the scan rate limit. The example above configures
 Telegram `user.id` `/myid
@@ -60,6 +70,11 @@ when available, such as `example.com`, or a SHA-256 URL hash fallback. Full URLs
 paths, and query strings are not stored in the report file. Reporter identifiers
 are hashed per report key and used only to avoid counting duplicate reports from
 the same user.
+
+Admins configured in `ADMIN_USER_IDS` can use `/reports` to view the highest
+reported domains or URL hashes. Use `/clearreport example.com` to remove the
+stored report count for a domain. The clear command accepts a domain, not a full
+sensitive URL.
 
 ## Setup
 
@@ -150,4 +165,5 @@ The frontend only sends the entered URL and Telegram Mini App `initData` to
 - A clean result does not guarantee that a link is safe.
 - VirusTotal free API limits can be reached during heavy use; the Mini App shows
   a friendly Arabic message when that happens.
-- Group protection currently warns only. It does not delete messages.
+- Group protection warns by default. Message deletion is opt-in with
+  `DELETE_SUSPICIOUS=true` and requires the bot to be a group admin.

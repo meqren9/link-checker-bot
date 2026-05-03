@@ -589,11 +589,22 @@ def format_local_scan_result(result: dict) -> str:
     expert = result.get("expert_analysis") or {}
     expert_indicators = expert.get("indicators") or ["لم تظهر مؤشرات خطر واضحة ضمن القواعد المحلية."]
     expert_indicator_lines = "\n".join(f"- {indicator}" for indicator in expert_indicators[:5])
+    community_report = result.get("community_report") or {}
+    community_text = ""
+
+    if int(community_report.get("count") or 0) > 0:
+        community_status = "مصنف كمشبوه من المجتمع" if community_report.get("community_suspicious") else "بلاغات موجودة"
+        community_text = (
+            "بلاغات المجتمع:\n"
+            f"- الحالة: {community_status}\n"
+            f"- العدد: {community_report['count']}/{community_report['threshold']}\n\n"
+        )
 
     return (
         f"{result['verdict']}\n"
         f"درجة الخطورة: {result['risk_score']}/100\n\n"
         f"{result['explanation']}\n\n"
+        f"{community_text}"
         "الفحص المحلي:\n"
         f"{signal_lines}\n\n"
         "🧠 تحليل خبير الأمن\n"

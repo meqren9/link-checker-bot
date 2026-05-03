@@ -72,6 +72,25 @@ def url_report_key(url: str) -> dict:
     }
 
 
+def domain_report_key(domain: str) -> dict:
+    value = (domain or "").strip().lower()
+    if "://" not in value:
+        value = f"https://{value}"
+
+    parsed = urlsplit(normalize_url(value))
+    hostname = (parsed.hostname or "").strip(".")
+    domain_label = registered_domain(hostname)
+
+    if not domain_label:
+        return {}
+
+    return {
+        "key": f"domain:{domain_label}",
+        "type": "domain",
+        "label": domain_label,
+    }
+
+
 def reporter_hash(reporter_id: str | int | None, report_key: str = "") -> str:
     if reporter_id is None:
         return ""
@@ -142,4 +161,55 @@ def get_report_status(url: str) -> dict:
         "count": count,
         "threshold": REPORT_THRESHOLD,
         "community_suspicious": count >= REPORT_THRESHOLD,
+    }
+
+
+def list_reports(limit: int = 10) -> list[dict]:
+    with _lock:
+        store = _load_store()
+        reports = list(store["reports"].values())
+
+    ordered_reports = sorted(
+        reports,
+        key=lambda item: (int(item.get("count") or 0), int(item.get("last_reported_at") or 0)),
+        reverse=True,
+    )
+
+    results = []
+    for item in ordered_reports[:limit]:
+        count = int(item.get("count") or 0)
+        results.append({
+            "key_type": item.get("type") or "unknown",
+            "label": item.get("label") or "unknown",
+            "count": count,
+            "threshold": REPORT_THRESHOLD,
+            "community_suspicious": count >= REPORT_THRESHOLD,
+            "last_reported_at": int(item.get("last_reported_at") or 0),
+        })
+
+    return results
+
+
+def clear_domain_report(domain: str) -> dict:
+    report_key = domain_report_key(domain)
+
+    if not report_key:
+        return {
+            "cleared": False,
+            "label": "",
+            "reason": "invalid_domain",
+        }
+
+    with _lock:
+        store = _load_store()
+        existed = report_key["key"] in store["reports"]
+
+        if existed:
+            store["reports"].pop(report_key["key"], None)
+            _save_store(store)
+
+    return {
+        "cleared": existed,
+        "label": report_key["label"],
+        "reason": "" if existed else "not_found",
     }

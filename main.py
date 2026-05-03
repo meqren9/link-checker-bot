@@ -7,6 +7,7 @@ from collections import defaultdict, deque
 from dotenv import load_dotenv
 from urllib.parse import quote
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -16,13 +17,10 @@ from telegram.ext import (
     filters,
 )
 import uvicorn
-from community_reports import add_report_for_key, url_report_key
+from community_reports import add_report_for_key, clear_domain_report, list_reports, url_report_key
 from scanner import extract_urls, format_local_scan_result, local_scan_url, normalize_url, safe_url_label
 
 load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
 
 USER_SCAN_LIMIT = 3
 USER_SCAN_WINDOW_SECONDS = 60
@@ -37,6 +35,20 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
+
+def parse_bool_env(value: str, default: bool = False) -> bool:
+    normalized = (value or "").strip().lower()
+
+    if not normalized:
+        return default
+
+    return normalized in {"1", "true", "yes", "on"}
+
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
+DELETE_SUSPICIOUS = parse_bool_env(os.getenv("DELETE_SUSPICIOUS", "false"))
 
 
 def parse_admin_user_ids(value: str) -> set[int]:
@@ -94,7 +106,7 @@ def link_actions_keyboard(url: str) -> InlineKeyboardMarkup:
     token = report_token_for_url(url)
 
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚩 بلّغ عن رابط مشبوه", callback_data=f"report:{token}")],
+        [InlineKeyboardButton("🚩 بلّغ عن رابط", callback_data=f"report:{token}")],
         [InlineKeyboardButton("📤 مشاركة البوت", url=share_url)],
     ])
 
@@ -153,6 +165,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help - المساعدة\n\n"
         "/myid - عرض معرّفك واسم المستخدم\n\n"
         "/privacy - الخصوصية والبلاغات\n\n"
+        "/reports - عرض البلاغات للمشرفين\n"
+        "/clearreport <domain> - حذف بلاغات نطاق للمشرفين\n\n"
         "أرسل رابطًا يبدأ بـ https:// أو www وسأفحصه لك.\n"
         "الفحص الحالي محلي وإرشادي فقط.\n"
         "لن أعرض الرابط كاملًا في الرد حفاظًا على الخصوصية."
@@ -163,6 +177,53 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(format_user_identity(update.effective_user))
 
 
+async def reports_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id if update.effective_user else None
+
+    if not user_id or not is_admin_user(user_id):
+        await update.message.reply_text("هذا الأمر متاح للمشرفين فقط.")
+        return
+
+    reports = list_reports(limit=10)
+
+    if not reports:
+        await update.message.reply_text("لا توجد بلاغات محفوظة حاليًا.")
+        return
+
+    lines = ["أعلى البلاغات:"]
+    for item in reports:
+        status = "مشبوه من المجتمع" if item["community_suspicious"] else "تحت المراجعة"
+        lines.append(
+            f"- {item['label']} ({item['key_type']}): {item['count']}/{item['threshold']} - {status}"
+        )
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def clearreport_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id if update.effective_user else None
+
+    if not user_id or not is_admin_user(user_id):
+        await update.message.reply_text("هذا الأمر متاح للمشرفين فقط.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("استخدم الأمر بهذا الشكل:\n/clearreport example.com")
+        return
+
+    result = clear_domain_report(context.args[0])
+
+    if result["reason"] == "invalid_domain":
+        await update.message.reply_text("النطاق غير صالح. استخدم مثالًا مثل:\n/clearreport example.com")
+        return
+
+    if result["cleared"]:
+        await update.message.reply_text(f"تم حذف بلاغات النطاق: {result['label']}")
+        return
+
+    await update.message.reply_text(f"لا توجد بلاغات محفوظة للنطاق: {result['label']}")
+
+
 async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "الخصوصية والبلاغات:\n\n"
@@ -171,7 +232,8 @@ async def privacy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- لا نحفظ المسار أو الاستعلام الكامل للرابط ضمن البلاغات.\n"
         "- نستخدم بصمة مرتبطة بمفتاح البلاغ لمنع تكرار البلاغ من نفس الحساب، ولا نحفظ المعرّف الخام داخل سجل البلاغات.\n"
         "- عند وصول رابط أو نطاق إلى 5 بلاغات، يظهر كمشبوه من المجتمع في الفحص.\n"
-        "- في المجموعات يرسل البوت تحذيرًا عند الروابط المشبوهة أو عالية الخطورة، ولا يحذف الرسائل حاليًا."
+        "- في المجموعات يرسل البوت تحذيرًا عند الروابط عالية الخطورة أو التي وصلت حد البلاغات.\n"
+        "- لا يحذف البوت رسائل المجموعة إلا إذا فعّل المشرفون DELETE_SUSPICIOUS وكان البوت مشرفًا في المجموعة."
     )
 
 
@@ -179,14 +241,71 @@ def is_group_chat(update: Update) -> bool:
     return bool(update.effective_chat and update.effective_chat.type in {"group", "supergroup"})
 
 
-def group_warning_text(url: str, result: dict) -> str:
-    return (
-        "⚠️ تحذير رابط مشبوه في المجموعة\n\n"
-        f"الرابط:\n{safe_url_label(url)}\n\n"
-        f"درجة الخطورة: {result['risk_score']}/100\n"
-        f"{result['explanation']}\n\n"
-        "لم أحذف الرسالة. تحققوا من المصدر قبل فتح الرابط أو إدخال أي بيانات."
+def is_high_confidence_group_risk(result: dict) -> bool:
+    community_report = result.get("community_report") or {}
+    report_count = int(community_report.get("count") or 0)
+    report_threshold = int(community_report.get("threshold") or 0)
+
+    return result.get("risk_score", 0) >= 60 or (
+        report_threshold > 0 and report_count >= report_threshold
     )
+
+
+def group_warning_text() -> str:
+    return (
+        "⚠️ تحذير:\n"
+        "هذا الرابط تم تصنيفه كمشبوه/خطير\n"
+        "يرجى الحذر قبل فتحه"
+    )
+
+
+def group_delete_notice_text() -> str:
+    return "🛡️ تم حذف رابط مشبوه لحماية المجموعة"
+
+
+async def bot_is_admin(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> bool:
+    try:
+        bot_user = await context.bot.get_me()
+        member = await context.bot.get_chat_member(chat_id, bot_user.id)
+    except TelegramError as error:
+        logger.warning("Could not verify bot admin status in chat %s: %s", chat_id, error)
+        return False
+
+    return member.status in {"administrator", "creator"}
+
+
+async def handle_group_safety_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    url: str,
+    result: dict,
+) -> bool:
+    if not is_group_chat(update) or not is_high_confidence_group_risk(result):
+        return False
+
+    if DELETE_SUSPICIOUS and update.effective_chat:
+        can_delete = await bot_is_admin(context, update.effective_chat.id)
+
+        if can_delete:
+            try:
+                await update.message.delete()
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=group_delete_notice_text(),
+                )
+                return True
+            except TelegramError as error:
+                logger.warning(
+                    "Could not delete suspicious message in chat %s: %s",
+                    update.effective_chat.id,
+                    error,
+                )
+
+    await update.message.reply_text(
+        group_warning_text(),
+        reply_markup=link_actions_keyboard(url),
+    )
+    return True
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -228,11 +347,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         result = local_scan_url(url, message_text=text)
 
-        if is_group_chat(update) and result["risk_score"] >= 30:
-            await update.message.reply_text(
-                group_warning_text(url, result),
-                reply_markup=link_actions_keyboard(url),
-            )
+        if await handle_group_safety_action(update, context, url, result):
             continue
 
         await update.message.reply_text(
@@ -290,6 +405,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("myid", myid_command))
+    app.add_handler(CommandHandler("reports", reports_command))
+    app.add_handler(CommandHandler("clearreport", clearreport_command))
     app.add_handler(CommandHandler("privacy", privacy_command))
     app.add_handler(CallbackQueryHandler(report_callback, pattern=r"^report:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
