@@ -19,6 +19,106 @@ PHISHING_KEYWORDS = (
     "banking",
     "support",
 )
+MESSAGE_RISK_PATTERNS = {
+    "urgency": {
+        "score": 15,
+        "label": "استعجال أو ضغط زمني",
+        "words": (
+            "urgent",
+            "immediately",
+            "now",
+            "within 24 hours",
+            "expires",
+            "last chance",
+            "limited time",
+            "عاجل",
+            "فورًا",
+            "فورا",
+            "الآن",
+            "خلال 24 ساعة",
+            "ينتهي",
+            "آخر فرصة",
+        ),
+    },
+    "fake_prize": {
+        "score": 20,
+        "label": "وعد بجائزة أو هدية",
+        "words": (
+            "winner",
+            "won",
+            "prize",
+            "reward",
+            "free gift",
+            "airdrop",
+            "congratulations",
+            "ربحت",
+            "فزت",
+            "جائزة",
+            "هدية",
+            "مكافأة",
+            "مبروك",
+        ),
+    },
+    "account_warning": {
+        "score": 20,
+        "label": "تحذير عن الحساب",
+        "words": (
+            "suspended",
+            "locked",
+            "blocked",
+            "disabled",
+            "unusual activity",
+            "account warning",
+            "تم إيقاف",
+            "موقوف",
+            "محظور",
+            "مقفل",
+            "نشاط غير معتاد",
+            "تحذير الحساب",
+        ),
+    },
+    "login_update": {
+        "score": 20,
+        "label": "طلب تسجيل دخول أو تحديث بيانات",
+        "words": (
+            "login",
+            "sign in",
+            "verify",
+            "update",
+            "confirm",
+            "password",
+            "validate",
+            "تسجيل الدخول",
+            "سجل دخول",
+            "تحقق",
+            "حدّث",
+            "حدث",
+            "تأكيد",
+            "كلمة المرور",
+            "بياناتك",
+        ),
+    },
+    "payment_security": {
+        "score": 15,
+        "label": "كلمات دفع أو أمن",
+        "words": (
+            "payment",
+            "card",
+            "bank",
+            "wallet",
+            "security",
+            "2fa",
+            "otp",
+            "دفع",
+            "بطاقة",
+            "بنك",
+            "محفظة",
+            "أمان",
+            "رمز التحقق",
+            "كود التحقق",
+        ),
+    },
+}
 KNOWN_BRANDS = (
     "apple",
     "google",
@@ -35,6 +135,23 @@ KNOWN_BRANDS = (
     "stc",
     "alrajhi",
     "snb",
+    "alahli",
+    "riyadbank",
+    "alinma",
+)
+SUSPICIOUS_DOMAIN_PHRASES = (
+    "secure-login",
+    "securelogin",
+    "verify-account",
+    "verifyaccount",
+    "support-update",
+    "supportupdate",
+    "account-verify",
+    "accountverify",
+    "login-update",
+    "loginupdate",
+    "security-check",
+    "securitycheck",
 )
 URL_SHORTENERS = {
     "bit.ly",
@@ -48,6 +165,14 @@ URL_SHORTENERS = {
     "rebrand.ly",
     "shorturl.at",
     "lnkd.in",
+}
+MULTI_PART_PUBLIC_SUFFIXES = {
+    "com.sa",
+    "net.sa",
+    "org.sa",
+    "co.uk",
+    "com.au",
+    "co.in",
 }
 SUSPICIOUS_TLDS = {
     "zip",
@@ -93,6 +218,9 @@ BRAND_DOMAIN_HINTS = {
     "stc": ("stc.com.sa",),
     "alrajhi": ("alrajhibank.com.sa",),
     "snb": ("alahli.com",),
+    "alahli": ("alahli.com",),
+    "riyadbank": ("riyadbank.com",),
+    "alinma": ("alinma.com",),
 }
 
 
@@ -123,7 +251,15 @@ def registered_domain(hostname: str) -> str:
     if len(parts) <= 2:
         return ".".join(parts)
 
+    suffix = ".".join(parts[-2:])
+    if suffix in MULTI_PART_PUBLIC_SUFFIXES and len(parts) >= 3:
+        return ".".join(parts[-3:])
+
     return ".".join(parts[-2:])
+
+
+def extract_urls(text: str) -> list[str]:
+    return [clean_url(url) for url in re.findall(URL_REGEX, text or "") if clean_url(url)]
 
 
 def hostname_tld(hostname: str) -> str:
@@ -145,14 +281,45 @@ def has_risky_file_extension(path: str) -> str:
     return ""
 
 
-def find_brand_impersonation(hostname: str) -> list[str]:
+def levenshtein_distance(left: str, right: str) -> int:
+    if left == right:
+        return 0
+
+    if len(left) < len(right):
+        left, right = right, left
+
+    previous = list(range(len(right) + 1))
+    for left_index, left_char in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_char in enumerate(right, start=1):
+            insert_cost = current[right_index - 1] + 1
+            delete_cost = previous[right_index] + 1
+            replace_cost = previous[right_index - 1] + (left_char != right_char)
+            current.append(min(insert_cost, delete_cost, replace_cost))
+        previous = current
+
+    return previous[-1]
+
+
+def official_domain_for_brand(brand: str) -> str:
+    return BRAND_DOMAIN_HINTS.get(brand, (f"{brand}.com",))[0]
+
+
+def find_brand_impersonation(hostname: str) -> list[dict]:
     lowered_hostname = hostname.lower()
     normalized_hostname = lowered_hostname.replace("-", "")
     root_domain = registered_domain(lowered_hostname)
+    root_label = root_domain.split(".")[0] if root_domain else ""
+    hostname_labels = [label for label in re.split(r"[.-]", lowered_hostname) if label]
     found = []
 
     for brand, official_domains in BRAND_DOMAIN_HINTS.items():
         brand_in_host = brand in normalized_hostname
+        typo_distance = min(
+            [levenshtein_distance(root_label, brand)]
+            + [levenshtein_distance(label, brand) for label in hostname_labels]
+        )
+        typosquat = len(brand) >= 5 and 0 < typo_distance <= 2
         official_match = any(
             lowered_hostname == official
             or root_domain == official
@@ -160,10 +327,24 @@ def find_brand_impersonation(hostname: str) -> list[str]:
             for official in official_domains
         )
 
-        if brand_in_host and not official_match:
-            found.append(brand)
+        if not official_match and (brand_in_host or typosquat):
+            reason = "اسم العلامة ظاهر داخل نطاق غير رسمي"
+            if typosquat and not brand_in_host:
+                reason = "اسم النطاق قريب جدًا من اسم العلامة وقد يكون خطأً مقصودًا"
+
+            found.append({
+                "brand": brand,
+                "official_domain": official_domain_for_brand(brand),
+                "reason": reason,
+                "domain": root_domain,
+            })
 
     return found
+
+
+def find_suspicious_domain_phrases(hostname: str) -> list[str]:
+    compact_hostname = hostname.lower().replace(".", "-")
+    return [phrase for phrase in SUSPICIOUS_DOMAIN_PHRASES if phrase in compact_hostname]
 
 
 def has_misleading_subdomain(hostname: str) -> bool:
@@ -176,7 +357,57 @@ def has_misleading_subdomain(hostname: str) -> bool:
     return any(brand in subdomain.replace("-", "") for brand in KNOWN_BRANDS)
 
 
-def build_expert_analysis(normalized_url: str, risk_score: int, signals: list[str]) -> dict:
+def analyze_message_context(message_text: str = "") -> dict:
+    lowered_message = (message_text or "").lower()
+    indicators = []
+    score = 0
+    matched_categories = 0
+
+    for pattern in MESSAGE_RISK_PATTERNS.values():
+        matches = [word for word in pattern["words"] if word in lowered_message]
+        if not matches:
+            continue
+
+        matched_categories += 1
+        score += pattern["score"]
+        indicators.append(
+            f"{pattern['label']}: ظهرت عبارات مثل {', '.join(matches[:3])}."
+        )
+
+    if matched_categories >= 3:
+        score += 10
+        indicators.append("اجتماع عدة أساليب في رسالة واحدة يزيد احتمال التصيد.")
+
+    if not indicators:
+        summary = "نص الرسالة لا يحتوي مؤشرات تصيد واضحة ضمن القواعد المحلية."
+    elif score >= 45:
+        summary = "نص الرسالة يرفع مستوى الخطر لأنه يجمع ضغطًا أو وعودًا أو طلب بيانات حساسة."
+    else:
+        summary = "نص الرسالة يحتوي مؤشرات تستحق الحذر قبل التعامل مع الرابط."
+
+    return {
+        "risk_score": min(score, 60),
+        "summary": summary,
+        "indicators": indicators,
+    }
+
+
+def smart_advice_for_score(risk_score: int) -> str:
+    if risk_score >= 60:
+        return "لا تفتح الرابط، لا تدخل بياناتك، احذف الرسالة أو بلّغ عنها."
+
+    if risk_score >= 30:
+        return "تحقق من المصدر وافتح الموقع الرسمي يدويًا بدل الضغط على الرابط."
+
+    return "لا توجد مؤشرات خطر واضحة، لكن لا تشارك بيانات حساسة إلا من المصدر الرسمي."
+
+
+def build_expert_analysis(
+    normalized_url: str,
+    risk_score: int,
+    signals: list[str],
+    message_analysis: dict | None = None,
+) -> dict:
     parsed = urlsplit(normalized_url)
     hostname = parsed.hostname or ""
     lowered_url = normalized_url.lower()
@@ -185,6 +416,7 @@ def build_expert_analysis(normalized_url: str, risk_score: int, signals: list[st
     risky_extension = has_risky_file_extension(parsed.path)
     phishing_keywords = [word for word in PHISHING_KEYWORDS if word in lowered_url]
     impersonated_brands = find_brand_impersonation(hostname)
+    suspicious_domain_phrases = find_suspicious_domain_phrases(hostname)
     indicators = []
 
     if phishing_keywords:
@@ -194,9 +426,18 @@ def build_expert_analysis(normalized_url: str, risk_score: int, signals: list[st
         )
 
     if impersonated_brands:
+        for item in impersonated_brands[:3]:
+            indicators.append(
+                "احتمال تقمص علامة تجارية: "
+                f"النطاق {item['domain']} يشبه {item['brand']}، "
+                f"والنطاق الرسمي المتوقع هو {item['official_domain']}. "
+                f"{item['reason']}."
+            )
+
+    if suspicious_domain_phrases:
         indicators.append(
-            "احتمال تقمص علامة تجارية داخل نطاق غير رسمي: "
-            + "، ".join(impersonated_brands[:3])
+            "اسم النطاق يستخدم عبارات تصيد شائعة مثل: "
+            + "، ".join(suspicious_domain_phrases[:3])
         )
 
     if tld in SUSPICIOUS_TLDS:
@@ -220,27 +461,28 @@ def build_expert_analysis(normalized_url: str, risk_score: int, signals: list[st
     if "xn--" in hostname:
         indicators.append("النطاق يحتوي ترميزًا قد يشير إلى أحرف شبيهة بأحرف علامات معروفة.")
 
+    if message_analysis:
+        indicators.extend(message_analysis.get("indicators", [])[:4])
+
     if not indicators and signals:
         indicators.extend(signals[:3])
 
     if risk_score >= 60:
-        summary = "الرابط يبدو خطيرًا أو عالي الاشتباه بسبب اجتماع عدة مؤشرات خطر."
-        recommendation = "لا تفتح الرابط ولا تدخل بياناتك. تحقّق من الجهة عبر التطبيق أو الموقع الرسمي مباشرة."
+        summary = "الرسالة أو الرابط تبدو خطيرة بسبب اجتماع مؤشرات تصيد، تقمص، أو طلب بيانات حساسة."
     elif risk_score >= 30:
-        summary = "الرابط يبدو مشبوهًا ويحتاج تحققًا إضافيًا قبل فتحه."
-        recommendation = "تجنب إدخال كلمات مرور أو بيانات دفع، وافتح الخدمة من عنوانها الرسمي بدل هذا الرابط."
+        summary = "الرسالة أو الرابط تبدو مشبوهة وتحتاج تحققًا إضافيًا قبل فتحها."
     else:
-        summary = "لا توجد مؤشرات خطر واضحة في الفحص المحلي، لكن ذلك لا يعني أن الرابط آمن بنسبة 100%."
-        recommendation = "افتح الرابط فقط إذا كنت تثق بالمصدر، ولا تدخل بيانات حساسة إلا بعد التأكد من النطاق."
+        summary = "لا توجد مؤشرات خطر واضحة في النص أو الرابط ضمن الفحص المحلي، لكن ذلك لا يعني الأمان بنسبة 100%."
 
     return {
         "summary": summary,
         "indicators": indicators or ["لم تظهر مؤشرات خطر واضحة ضمن القواعد المحلية."],
-        "recommendation": recommendation,
+        "recommendation": smart_advice_for_score(risk_score),
+        "next_steps_title": "🧭 ماذا تفعل الآن؟",
     }
 
 
-def local_scan_url(url: str) -> dict:
+def local_scan_url(url: str, message_text: str = "") -> dict:
     normalized = normalize_url(url)
     parsed = urlsplit(normalized)
     hostname = parsed.hostname or ""
@@ -248,6 +490,7 @@ def local_scan_url(url: str) -> dict:
     tld = hostname_tld(hostname)
     risk_score = 0
     signals = []
+    message_analysis = analyze_message_context(message_text)
 
     if not parsed.scheme or not parsed.netloc:
         risk_score += 40
@@ -277,6 +520,10 @@ def local_scan_url(url: str) -> dict:
         risk_score += 25
         signals.append("قد يحاول الرابط تقمص علامة تجارية في نطاق غير رسمي.")
 
+    if find_suspicious_domain_phrases(hostname):
+        risk_score += 15
+        signals.append("اسم النطاق يحتوي عبارات مثل تسجيل دخول آمن أو تحقق من الحساب.")
+
     if tld in SUSPICIOUS_TLDS:
         risk_score += 15
         signals.append("امتداد النطاق مرتبط عادةً بروابط منخفضة الثقة.")
@@ -297,6 +544,10 @@ def local_scan_url(url: str) -> dict:
         risk_score += 25
         signals.append("الرابط يشير إلى ملف قابل للتنفيذ أو امتداد عالي المخاطر.")
 
+    if message_analysis["indicators"]:
+        risk_score += message_analysis["risk_score"]
+        signals.append("نص الرسالة يحتوي عبارات شائعة في رسائل التصيد.")
+
     risk_score = min(risk_score, 100)
 
     if risk_score >= 60:
@@ -314,7 +565,13 @@ def local_scan_url(url: str) -> dict:
         "risk_score": risk_score,
         "explanation": explanation,
         "signals": signals,
-        "expert_analysis": build_expert_analysis(normalized, risk_score, signals),
+        "message_analysis": message_analysis,
+        "expert_analysis": build_expert_analysis(
+            normalized,
+            risk_score,
+            signals,
+            message_analysis,
+        ),
     }
 
 
@@ -335,13 +592,13 @@ def format_local_scan_result(result: dict) -> str:
         f"{expert.get('summary', 'لا توجد مؤشرات خطر واضحة في الفحص المحلي.')}\n\n"
         "المؤشرات:\n"
         f"{expert_indicator_lines}\n\n"
-        "ماذا تفعل:\n"
+        f"{expert.get('next_steps_title', '🧭 ماذا تفعل الآن؟')}\n"
         f"{expert.get('recommendation', 'افتح الرابط فقط إذا كنت تثق بالمصدر.')}\n\n"
         "تنبيه: حتى إذا ظهرت النتيجة آمنة، فهذا لا يضمن الأمان بنسبة 100%.\n\n"
         "ساعد غيرك على فحص الروابط بمشاركة البوت: @SafeLiinkBot"
     )
 
 
-def check_url(url: str) -> str:
+def check_url(url: str, message_text: str = "") -> str:
     url = normalize_url(url)
-    return format_local_scan_result(local_scan_url(url))
+    return format_local_scan_result(local_scan_url(url, message_text=message_text))

@@ -34,7 +34,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -99,7 +100,8 @@ label {
   gap: 10px;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   min-height: 52px;
   border: 1px solid var(--border);
@@ -107,17 +109,25 @@ input {
   padding: 0 14px;
   color: var(--text);
   background: #ffffff;
-  direction: ltr;
-  text-align: left;
+  direction: rtl;
+  text-align: right;
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-input::placeholder {
+textarea {
+  min-height: 104px;
+  padding-block: 12px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
   color: #98a2b3;
 }
 
-input:focus {
+input:focus,
+textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
 }

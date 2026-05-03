@@ -27,9 +27,8 @@ function cleanPastedUrl(value) {
   return value
     .trim()
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/^<(.+)>$/, "$1")
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
-    .replace(/\s+/g, "");
+    .replace(/^<(.+)>$/s, "$1")
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
 }
 
 function translateError(message) {
@@ -102,6 +101,7 @@ function renderResult(response) {
   const signals = Array.isArray(scan.signals) ? scan.signals : [];
   const expert = scan.expert_analysis || {};
   const expertIndicators = Array.isArray(expert.indicators) ? expert.indicators : [];
+  const messageAnalysis = scan.message_analysis || {};
 
   resultBox.hidden = false;
   resultBox.replaceChildren();
@@ -176,10 +176,34 @@ function renderResult(response) {
   expertRecommendation.textContent =
     expert.recommendation || "افتح الرابط فقط إذا كنت تثق بالمصدر، ولا تدخل بيانات حساسة إلا بعد التأكد من النطاق.";
 
-  expertCard.append(expertTitle, expertSummary, expertList, expertRecommendation);
+  const adviceTitle = document.createElement("h3");
+  adviceTitle.className = "signals-title";
+  adviceTitle.textContent = expert.next_steps_title || "🧭 ماذا تفعل الآن؟";
+
+  expertCard.append(expertTitle, expertSummary, expertList, adviceTitle, expertRecommendation);
+
+  let messageCard;
+  if (messageAnalysis.summary) {
+    messageCard = document.createElement("section");
+    messageCard.className = "expert-card";
+
+    const messageTitle = document.createElement("h3");
+    messageTitle.className = "signals-title";
+    messageTitle.textContent = "تحليل نص الرسالة";
+
+    const messageSummary = document.createElement("p");
+    messageSummary.className = "expert-summary";
+    messageSummary.textContent = messageAnalysis.summary;
+    messageCard.append(messageTitle, messageSummary);
+  }
+
   top.append(title, risk);
   signalsCard.append(signalsTitle, list);
-  card.append(top, url, signalsCard, expertCard);
+  card.append(top, url, signalsCard);
+  if (messageCard) {
+    card.append(messageCard);
+  }
+  card.append(expertCard);
 
   const actions = document.createElement("div");
   actions.className = "result-actions";

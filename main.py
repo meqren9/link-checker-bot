@@ -1,5 +1,4 @@
 import os
-import re
 import logging
 import time
 import threading
@@ -15,7 +14,7 @@ from telegram.ext import (
     filters,
 )
 import uvicorn
-from scanner import URL_REGEX, check_url, clean_url, normalize_url, safe_url_label
+from scanner import check_url, extract_urls, normalize_url, safe_url_label
 
 load_dotenv()
 
@@ -149,8 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    urls = [clean_url(url) for url in re.findall(URL_REGEX, text)]
-    urls = [url for url in urls if url]
+    urls = extract_urls(text)
 
     if not urls:
         await update.message.reply_text(
@@ -177,7 +175,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             break
 
-        result = check_url(url)
+        result = check_url(url, message_text=text)
         await update.message.reply_text(
             f"🔗 الرابط:\n{safe_url_label(url)}\n\n{result}",
             reply_markup=share_bot_keyboard(),

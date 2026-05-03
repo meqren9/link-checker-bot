@@ -46,6 +46,21 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response["url"], "https://www.example.com/...")
 
+    def test_scan_accepts_full_message_with_link_context(self):
+        response = self.run_async(
+            scan(
+                ScanRequest(
+                    url="عاجل تحقق من حسابك الآن https://paypa1-secure-login.example.com/verify",
+                    initData="query=data",
+                )
+            )
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["url"], "https://paypa1-secure-login.example.com/...")
+        self.assertIn("message_analysis", response["scan"])
+        self.assertGreaterEqual(response["scan"]["risk_score"], 60)
+
     def test_virustotal_scan_requires_server_api_key(self):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(HTTPException) as context:

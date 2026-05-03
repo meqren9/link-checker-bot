@@ -16,17 +16,16 @@
         </header>
 
         <form id="scan-form" class="scan-form">
-          <label for="url-input">الرابط</label>
+          <label for="url-input">الرابط أو الرسالة</label>
           <div class="input-row">
-            <input
+            <textarea
               id="url-input"
               name="url"
-              type="url"
-              inputmode="url"
-              autocomplete="url"
-              placeholder="https://example.com"
+              inputmode="text"
+              autocomplete="off"
+              placeholder="الصق الرابط أو الرسالة التي تحتوي على رابط"
               required
-            >
+            ></textarea>
             <button id="scan-button" type="submit">فحص</button>
           </div>
           <p class="privacy-note">الفحص مبدئي وليس ضمانًا</p>

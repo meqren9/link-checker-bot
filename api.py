@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, StrictStr
 
-from scanner import clean_url, local_scan_url, normalize_url, safe_url_label
+from scanner import clean_url, extract_urls, local_scan_url, normalize_url, safe_url_label
 
 
 MAX_URL_LENGTH = 2048
@@ -57,7 +57,9 @@ def validate_scan_input(url: str, init_data: str) -> str:
     if not init_data:
         raise HTTPException(status_code=400, detail="initData is required")
 
-    normalized_url = normalize_url(url)
+    urls = extract_urls(url)
+    scan_url = urls[0] if urls else url
+    normalized_url = normalize_url(scan_url)
     if len(normalized_url) > MAX_URL_LENGTH:
         raise HTTPException(status_code=400, detail="url is too long")
 
@@ -189,7 +191,7 @@ async def scan(payload: ScanRequest) -> dict:
     return {
         "ok": True,
         "url": safe_url_label(normalized_url),
-        "scan": local_scan_url(normalized_url),
+        "scan": local_scan_url(normalized_url, message_text=payload.url),
     }
 
 
