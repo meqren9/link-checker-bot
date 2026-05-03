@@ -100,6 +100,8 @@ function renderResult(response) {
   const scan = response.scan || {};
   const score = Number(scan.risk_score || 0);
   const signals = Array.isArray(scan.signals) ? scan.signals : [];
+  const expert = scan.expert_analysis || {};
+  const expertIndicators = Array.isArray(expert.indicators) ? expert.indicators : [];
 
   resultBox.hidden = false;
   resultBox.replaceChildren();
@@ -144,9 +146,40 @@ function renderResult(response) {
     }
   }
 
+  const expertCard = document.createElement("section");
+  expertCard.className = "expert-card";
+
+  const expertTitle = document.createElement("h3");
+  expertTitle.className = "signals-title";
+  expertTitle.textContent = "🧠 تحليل خبير الأمن";
+
+  const expertSummary = document.createElement("p");
+  expertSummary.className = "expert-summary";
+  expertSummary.textContent =
+    expert.summary || "لا توجد مؤشرات خطر واضحة في الفحص المحلي، لكن هذا لا يعني أن الرابط آمن بنسبة 100%.";
+
+  const expertList = document.createElement("ul");
+  expertList.className = "signals";
+
+  const indicators = expertIndicators.length
+    ? expertIndicators
+    : ["لم تظهر مؤشرات خطر واضحة ضمن القواعد المحلية."];
+
+  for (const indicator of indicators) {
+    const item = document.createElement("li");
+    item.textContent = indicator;
+    expertList.append(item);
+  }
+
+  const expertRecommendation = document.createElement("p");
+  expertRecommendation.className = "expert-recommendation";
+  expertRecommendation.textContent =
+    expert.recommendation || "افتح الرابط فقط إذا كنت تثق بالمصدر، ولا تدخل بيانات حساسة إلا بعد التأكد من النطاق.";
+
+  expertCard.append(expertTitle, expertSummary, expertList, expertRecommendation);
   top.append(title, risk);
   signalsCard.append(signalsTitle, list);
-  card.append(top, url, signalsCard);
+  card.append(top, url, signalsCard, expertCard);
 
   const actions = document.createElement("div");
   actions.className = "result-actions";

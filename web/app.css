@@ -253,6 +253,29 @@ button:disabled {
   border-radius: 8px;
 }
 
+.expert-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.expert-summary,
+.expert-recommendation {
+  margin: 0;
+  color: #344054;
+}
+
+.expert-recommendation {
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 8px;
+  font-weight: 700;
+}
+
 .signals-title {
   margin: 0;
   color: var(--text);

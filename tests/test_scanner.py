@@ -23,12 +23,39 @@ class ScannerTests(unittest.TestCase):
         self.assertIn("الرابط لا يستخدم HTTPS.", result["signals"])
         self.assertIn("الرابط يستخدم عنوان IP بدل اسم نطاق.", result["signals"])
         self.assertIn("يحتوي الرابط كلمات شائعة في روابط التصيد.", result["signals"])
+        self.assertIn("expert_analysis", result)
+
+    def test_local_scan_expert_analysis_flags_required_indicators(self):
+        result = local_scan_url(
+            "http://paypal-login.example-account-verification-top-domain-name-that-is-long.xyz/update.exe"
+        )
+
+        indicators = "\n".join(result["expert_analysis"]["indicators"])
+        self.assertGreaterEqual(result["risk_score"], 60)
+        self.assertIn("التصيد", indicators)
+        self.assertIn("تقمص علامة تجارية", indicators)
+        self.assertIn(".xyz", indicators)
+        self.assertIn("طويل", indicators)
+        self.assertIn(".exe", indicators)
+
+    def test_local_scan_expert_analysis_flags_shortener_and_misleading_subdomain(self):
+        result = local_scan_url("https://paypal.bit.ly/verify")
+
+        indicators = "\n".join(result["expert_analysis"]["indicators"])
+        self.assertIn("النطاق الفرعي", indicators)
+        self.assertIn("اختصار", indicators)
+
+    def test_local_scan_does_not_flag_official_brand_domain_as_impersonation(self):
+        result = local_scan_url("https://paypal.com/login")
+
+        self.assertNotIn("قد يحاول الرابط تقمص علامة تجارية في نطاق غير رسمي.", result["signals"])
 
     def test_check_url_returns_arabic_result_text(self):
         result = check_url("https://example.com")
 
         self.assertIn("درجة الخطورة:", result)
         self.assertIn("الفحص المحلي:", result)
+        self.assertIn("🧠 تحليل خبير الأمن", result)
 
 
 if __name__ == "__main__":

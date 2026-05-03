@@ -22,6 +22,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response["url"], "https://example.com/...")
         self.assertIn("risk_score", response["scan"])
         self.assertIn("signals", response["scan"])
+        self.assertIn("expert_analysis", response["scan"])
+        self.assertIn("recommendation", response["scan"]["expert_analysis"])
 
     def test_scan_requires_init_data(self):
         with self.assertRaises(HTTPException) as context:
