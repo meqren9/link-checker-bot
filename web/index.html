@@ -18,14 +18,21 @@
         <form id="scan-form" class="scan-form">
           <label for="url-input">الرابط أو الرسالة</label>
           <div class="input-row">
-            <textarea
-              id="url-input"
-              name="url"
-              inputmode="text"
-              autocomplete="off"
-              placeholder="الصق الرابط أو الرسالة التي تحتوي على رابط"
-              required
-            ></textarea>
+            <div class="textarea-wrap">
+              <textarea
+                id="url-input"
+                name="url"
+                inputmode="text"
+                autocomplete="off"
+                placeholder="الصق الرابط أو الرسالة التي تحتوي على رابط"
+                rows="3"
+                required
+              ></textarea>
+              <div class="textarea-actions" aria-label="أدوات الإدخال">
+                <button id="clear-input" class="input-tool-button" type="button" aria-label="مسح النص" hidden>×</button>
+                <button id="paste-input" class="input-tool-button paste-button" type="button" aria-label="لصق من الحافظة" hidden>لصق</button>
+              </div>
+            </div>
             <button id="scan-button" type="submit">فحص</button>
           </div>
           <p class="privacy-note">الفحص مبدئي وليس ضمانًا</p>

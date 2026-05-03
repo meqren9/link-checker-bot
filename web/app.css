@@ -90,7 +90,7 @@ h1 {
 }
 
 label {
-  color: var(--text);
+  color: var(--tg-theme-text-color, var(--text));
   font-size: 0.95rem;
   font-weight: 700;
 }
@@ -100,15 +100,17 @@ label {
   gap: 10px;
 }
 
+.textarea-wrap {
+  position: relative;
+}
+
 input,
 textarea {
   width: 100%;
-  min-height: 52px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0 14px;
-  color: var(--text);
-  background: #ffffff;
+  color: var(--tg-theme-text-color, var(--text));
+  background: var(--tg-theme-bg-color, #ffffff);
   direction: rtl;
   text-align: right;
   outline: none;
@@ -116,20 +118,35 @@ textarea {
 }
 
 textarea {
-  min-height: 104px;
-  padding-block: 12px;
-  resize: vertical;
+  display: block;
+  min-height: 108px;
+  max-height: 44vh;
+  overflow-y: auto;
+  padding: 14px 14px 46px;
+  line-height: 1.55;
+  resize: none;
+  white-space: pre-wrap;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #98a2b3;
+  color: var(--tg-theme-hint-color, #697586);
+  opacity: 1;
 }
 
 input:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
+}
+
+.textarea-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
 }
 
 button {
@@ -155,6 +172,27 @@ button:active {
 button:disabled {
   cursor: wait;
   opacity: 0.75;
+}
+
+.input-tool-button {
+  min-width: 36px;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--tg-theme-text-color, var(--text));
+  background: var(--tg-theme-secondary-bg-color, #f8fafc);
+  border: 1px solid var(--border);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.paste-button {
+  min-width: 54px;
+  font-size: 0.86rem;
+}
+
+.input-tool-button[hidden] {
+  display: none;
 }
 
 .privacy-note {

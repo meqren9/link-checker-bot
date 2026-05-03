@@ -2,6 +2,8 @@ const telegram = window.Telegram?.WebApp;
 const form = document.querySelector("#scan-form");
 const input = document.querySelector("#url-input");
 const button = document.querySelector("#scan-button");
+const clearButton = document.querySelector("#clear-input");
+const pasteButton = document.querySelector("#paste-input");
 const statusBox = document.querySelector("#status");
 const resultBox = document.querySelector("#result");
 const ERROR_MESSAGES = {
@@ -34,6 +36,33 @@ function cleanPastedUrl(value) {
 
 function translateError(message) {
   return ERROR_MESSAGES[message] || message || "حدث خطأ غير متوقع. حاول مرة أخرى.";
+}
+
+function resizeInput() {
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+
+function updateInputTools() {
+  clearButton.hidden = input.value.length === 0;
+  resizeInput();
+}
+
+async function enablePasteButton() {
+  if (!navigator.clipboard?.readText) {
+    return;
+  }
+
+  try {
+    const permission = await navigator.permissions?.query({ name: "clipboard-read" });
+    if (permission && permission.state === "denied") {
+      return;
+    }
+  } catch {
+    // Browsers that do not expose clipboard permissions can still allow readText on click.
+  }
+
+  pasteButton.hidden = false;
 }
 
 function setStatus(message, { isError = false, isLoading = false } = {}) {
@@ -351,11 +380,36 @@ function renderAdvancedResult(summary) {
 
 input.addEventListener("blur", () => {
   input.value = cleanPastedUrl(input.value);
+  updateInputTools();
+});
+
+input.addEventListener("input", updateInputTools);
+
+clearButton.addEventListener("click", () => {
+  input.value = "";
+  updateInputTools();
+  input.focus();
+});
+
+pasteButton.addEventListener("click", async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      return;
+    }
+
+    input.value = cleanPastedUrl(text);
+    updateInputTools();
+    input.focus();
+  } catch {
+    // Clipboard access depends on browser and Telegram container permissions.
+  }
 });
 
 input.addEventListener("paste", () => {
   window.setTimeout(() => {
     input.value = cleanPastedUrl(input.value);
+    updateInputTools();
   }, 0);
 });
 
@@ -364,6 +418,7 @@ form.addEventListener("submit", async (event) => {
 
   const url = cleanPastedUrl(input.value);
   input.value = url;
+  updateInputTools();
 
   if (!url) {
     setStatus("أدخل رابطًا للفحص.", { isError: true });
@@ -400,6 +455,9 @@ form.addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
+
+updateInputTools();
+enablePasteButton();
 
 async function runAdvancedScan() {
   const url = cleanPastedUrl(lastScannedUrl || input.value);
