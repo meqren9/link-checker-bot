@@ -74,14 +74,26 @@ function riskClass(score) {
 
 function riskLabel(score) {
   if (score >= 70) {
-    return "خطر مرتفع";
+    return "خطر عالي";
   }
 
   if (score >= 35) {
-    return "خطر متوسط";
+    return "تنبيه";
   }
 
-  return "خطر منخفض";
+  return "آمن غالبًا";
+}
+
+function resultAdvice(score) {
+  if (score >= 70) {
+    return "لا تفتح الرابط ولا تدخل بياناتك.";
+  }
+
+  if (score >= 35) {
+    return "افتحه فقط إذا كنت تثق بالمصدر.";
+  }
+
+  return "لا توجد مؤشرات واضحة. ابقَ حذرًا.";
 }
 
 function vtLevelClass(level) {
@@ -111,16 +123,27 @@ function renderResult(response) {
   const card = document.createElement("article");
   card.className = "result-card";
 
-  const top = document.createElement("div");
-  top.className = "result-top";
+  const statusPanel = document.createElement("section");
+  statusPanel.className = `result-status ${riskClass(score)}`.trim();
 
-  const title = document.createElement("h2");
-  title.className = "result-title";
-  title.textContent = "نتيجة الفحص";
+  const statusText = document.createElement("div");
+  statusText.className = "result-status-text";
 
-  const risk = document.createElement("div");
-  risk.className = `risk ${riskClass(score)}`.trim();
-  risk.textContent = `${riskLabel(score)} · ${score}`;
+  const statusLabel = document.createElement("h2");
+  statusLabel.className = "result-status-label";
+  statusLabel.textContent = riskLabel(score);
+
+  const statusAdvice = document.createElement("p");
+  statusAdvice.className = "result-status-advice";
+  statusAdvice.textContent = resultAdvice(score);
+
+  const scoreBadge = document.createElement("div");
+  scoreBadge.className = "score-badge";
+  scoreBadge.setAttribute("aria-label", `درجة الخطر ${score} من 100`);
+  scoreBadge.textContent = score;
+
+  statusText.append(statusLabel, statusAdvice);
+  statusPanel.append(statusText, scoreBadge);
 
   const url = document.createElement("div");
   url.className = "result-url";
@@ -175,8 +198,7 @@ function renderResult(response) {
 
   const expertRecommendation = document.createElement("p");
   expertRecommendation.className = "expert-recommendation";
-  expertRecommendation.textContent =
-    expert.recommendation || "افتح الرابط فقط إذا كنت تثق بالمصدر، ولا تدخل بيانات حساسة إلا بعد التأكد من النطاق.";
+  expertRecommendation.textContent = resultAdvice(score);
 
   const adviceTitle = document.createElement("h3");
   adviceTitle.className = "signals-title";
@@ -199,9 +221,8 @@ function renderResult(response) {
     messageCard.append(messageTitle, messageSummary);
   }
 
-  top.append(title, risk);
   signalsCard.append(signalsTitle, list);
-  card.append(top, url, signalsCard);
+  card.append(statusPanel, url, signalsCard);
   if (messageCard) {
     card.append(messageCard);
   }
