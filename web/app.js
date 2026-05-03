@@ -4,15 +4,60 @@ const input = document.querySelector("#url-input");
 const button = document.querySelector("#scan-button");
 const statusBox = document.querySelector("#status");
 const resultBox = document.querySelector("#result");
+const ERROR_MESSAGES = {
+  "url is required": "أدخل رابطًا للفحص.",
+  "initData is required": "تعذر التحقق من جلسة تيليجرام. افتح التطبيق من داخل البوت وحاول مرة أخرى.",
+  "url is too long": "الرابط طويل جدًا. جرّب رابطًا أقصر.",
+  "url must be a valid http(s) URL": "أدخل رابطًا صحيحًا يبدأ بـ http أو https.",
+  "vt api key missing": "الفحص المتقدم غير مفعّل حاليًا.",
+  "vt api key invalid": "تعذر تشغيل الفحص المتقدم حاليًا.",
+  "vt rate limit reached": "وصل الفحص المتقدم للحد المجاني مؤقتًا. جرّب لاحقًا.",
+  "vt request failed": "تعذر الاتصال بخدمة الفحص المتقدم. حاول لاحقًا.",
+};
+let lastScannedUrl = "";
+let advancedButton;
+let advancedBox;
 
 if (telegram) {
   telegram.ready();
   telegram.expand();
 }
 
-function setStatus(message, isError = false) {
-  statusBox.textContent = message;
+function cleanPastedUrl(value) {
+  return value
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/^<(.+)>$/, "$1")
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .replace(/\s+/g, "");
+}
+
+function translateError(message) {
+  return ERROR_MESSAGES[message] || message || "حدث خطأ غير متوقع. حاول مرة أخرى.";
+}
+
+function setStatus(message, { isError = false, isLoading = false } = {}) {
+  statusBox.replaceChildren();
   statusBox.classList.toggle("error", isError);
+
+  if (!message) {
+    return;
+  }
+
+  const content = document.createElement("div");
+  content.className = "status-content";
+
+  if (isLoading) {
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    content.append(spinner);
+  }
+
+  const text = document.createElement("span");
+  text.textContent = message;
+  content.append(text);
+  statusBox.append(content);
 }
 
 function riskClass(score) {
@@ -27,6 +72,30 @@ function riskClass(score) {
   return "";
 }
 
+function riskLabel(score) {
+  if (score >= 70) {
+    return "خطر مرتفع";
+  }
+
+  if (score >= 35) {
+    return "خطر متوسط";
+  }
+
+  return "خطر منخفض";
+}
+
+function vtLevelClass(level) {
+  if (level === "high") {
+    return "high";
+  }
+
+  if (level === "medium") {
+    return "medium";
+  }
+
+  return "";
+}
+
 function renderResult(response) {
   const scan = response.scan || {};
   const score = Number(scan.risk_score || 0);
@@ -35,13 +104,30 @@ function renderResult(response) {
   resultBox.hidden = false;
   resultBox.replaceChildren();
 
+  const card = document.createElement("article");
+  card.className = "result-card";
+
+  const top = document.createElement("div");
+  top.className = "result-top";
+
+  const title = document.createElement("h2");
+  title.className = "result-title";
+  title.textContent = "نتيجة الفحص";
+
   const risk = document.createElement("div");
   risk.className = `risk ${riskClass(score)}`.trim();
-  risk.textContent = `درجة الخطورة: ${score}`;
+  risk.textContent = `${riskLabel(score)} · ${score}`;
 
   const url = document.createElement("div");
   url.className = "result-url";
   url.textContent = response.url || "";
+
+  const signalsCard = document.createElement("div");
+  signalsCard.className = "signals-card";
+
+  const signalsTitle = document.createElement("h3");
+  signalsTitle.className = "signals-title";
+  signalsTitle.textContent = "المؤشرات";
 
   const list = document.createElement("ul");
   list.className = "signals";
@@ -58,21 +144,113 @@ function renderResult(response) {
     }
   }
 
-  resultBox.append(risk, url, list);
+  top.append(title, risk);
+  signalsCard.append(signalsTitle, list);
+  card.append(top, url, signalsCard);
+
+  const actions = document.createElement("div");
+  actions.className = "result-actions";
+
+  advancedButton = document.createElement("button");
+  advancedButton.className = "advanced-button";
+  advancedButton.type = "button";
+  advancedButton.textContent = "🔬 فحص متقدم";
+  advancedButton.addEventListener("click", runAdvancedScan);
+
+  advancedBox = document.createElement("section");
+  advancedBox.className = "advanced-result";
+  advancedBox.hidden = true;
+  advancedBox.setAttribute("aria-live", "polite");
+
+  actions.append(advancedButton);
+  resultBox.append(card, actions, advancedBox);
 }
+
+function renderAdvancedResult(summary) {
+  if (!advancedBox) {
+    return;
+  }
+
+  const stats = summary.stats || {};
+  const total = Number(stats.total || 0);
+  const cachedText = summary.cached ? "نتيجة محفوظة خلال آخر 24 ساعة" : "نتيجة جديدة";
+
+  advancedBox.hidden = false;
+  advancedBox.replaceChildren();
+
+  const card = document.createElement("article");
+  card.className = "vt-card";
+
+  const top = document.createElement("div");
+  top.className = "result-top";
+
+  const title = document.createElement("h2");
+  title.className = "result-title";
+  title.textContent = summary.title || "ملخص VirusTotal";
+
+  const badge = document.createElement("div");
+  badge.className = `risk ${vtLevelClass(summary.level)}`.trim();
+  badge.textContent = cachedText;
+
+  const message = document.createElement("p");
+  message.className = "vt-message";
+  message.textContent = summary.message || "لا توجد تفاصيل إضافية.";
+
+  top.append(title, badge);
+  card.append(top, message);
+
+  if (total > 0) {
+    const statsList = document.createElement("dl");
+    statsList.className = "vt-stats";
+
+    const items = [
+      ["خطر", stats.malicious || 0],
+      ["مشبوه", stats.suspicious || 0],
+      ["آمن", stats.harmless || 0],
+      ["غير محسوم", stats.undetected || 0],
+    ];
+
+    for (const [label, value] of items) {
+      const item = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = label;
+      description.textContent = value;
+      item.append(term, description);
+      statsList.append(item);
+    }
+
+    card.append(statsList);
+  }
+
+  advancedBox.append(card);
+}
+
+input.addEventListener("blur", () => {
+  input.value = cleanPastedUrl(input.value);
+});
+
+input.addEventListener("paste", () => {
+  window.setTimeout(() => {
+    input.value = cleanPastedUrl(input.value);
+  }, 0);
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const url = input.value.trim();
+  const url = cleanPastedUrl(input.value);
+  input.value = url;
+
   if (!url) {
-    setStatus("أدخل رابطًا للفحص.", true);
+    setStatus("أدخل رابطًا للفحص.", { isError: true });
     return;
   }
 
   button.disabled = true;
   resultBox.hidden = true;
-  setStatus("جاري الفحص...");
+  lastScannedUrl = url;
+  setStatus("جاري الفحص...", { isLoading: true });
 
   try {
     const response = await fetch("/api/scan", {
@@ -88,14 +266,52 @@ form.addEventListener("submit", async (event) => {
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.detail || "تعذر فحص الرابط.");
+      throw new Error(translateError(data.detail || "تعذر فحص الرابط."));
     }
 
     setStatus("");
     renderResult(data);
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(translateError(error.message), { isError: true });
   } finally {
     button.disabled = false;
   }
 });
+
+async function runAdvancedScan() {
+  const url = cleanPastedUrl(lastScannedUrl || input.value);
+  if (!url) {
+    setStatus("أدخل رابطًا للفحص.", { isError: true });
+    return;
+  }
+
+  advancedButton.disabled = true;
+  advancedBox.hidden = false;
+  advancedBox.replaceChildren();
+  setStatus("جاري الفحص المتقدم...", { isLoading: true });
+
+  try {
+    const response = await fetch("/api/scan/vt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        initData: telegram?.initData || "",
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(translateError(data.detail || "تعذر الفحص المتقدم."));
+    }
+
+    setStatus("");
+    renderAdvancedResult(data.vt || {});
+  } catch (error) {
+    setStatus(translateError(error.message), { isError: true });
+  } finally {
+    advancedButton.disabled = false;
+  }
+}

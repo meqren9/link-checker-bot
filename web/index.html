@@ -12,6 +12,7 @@
         <header class="panel-header">
           <p class="eyebrow">SafeLiinkBot</p>
           <h1 id="app-title">فحص رابط</h1>
+          <p class="intro">افحص الرابط قبل فتحه وتحقق من مؤشرات الخطر الأساسية.</p>
         </header>
 
         <form id="scan-form" class="scan-form">
@@ -28,9 +29,10 @@
             >
             <button id="scan-button" type="submit">فحص</button>
           </div>
+          <p class="privacy-note">الفحص مبدئي وليس ضمانًا</p>
         </form>
 
-        <section id="status" class="status" aria-live="polite"></section>
+        <section id="status" class="status" aria-live="polite" aria-atomic="true"></section>
         <section id="result" class="result" hidden></section>
       </section>
     </main>

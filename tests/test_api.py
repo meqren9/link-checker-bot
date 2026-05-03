@@ -1,8 +1,10 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from api import ScanRequest, health, scan
+import api
+from api import ScanRequest, VirusTotalScanRequest, health, scan, scan_virustotal
 
 
 class ApiTests(unittest.TestCase):
@@ -41,6 +43,85 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response["url"], "https://www.example.com/...")
+
+    def test_virustotal_scan_requires_server_api_key(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(HTTPException) as context:
+                self.run_async(
+                    scan_virustotal(
+                        VirusTotalScanRequest(
+                            url="https://example.com",
+                            initData="query=data",
+                        )
+                    )
+                )
+
+        self.assertEqual(context.exception.status_code, 503)
+        self.assertEqual(context.exception.detail, "vt api key missing")
+
+    def test_virustotal_scan_returns_summary_without_exposing_api_key(self):
+        summary = {
+            "status": "ready",
+            "level": "low",
+            "title": "لا توجد مؤشرات متقدمة واضحة",
+            "message": "لم ترصد VirusTotal مؤشرات خطر واضحة.",
+            "stats": {"total": 10},
+            "cached": False,
+        }
+
+        with patch.dict("os.environ", {"VT_API_KEY": "server-secret"}):
+            with patch("api.get_vt_summary", return_value=summary) as mocked_summary:
+                response = self.run_async(
+                    scan_virustotal(
+                        VirusTotalScanRequest(
+                            url="https://example.com/private/path",
+                            initData="query=data",
+                        )
+                    )
+                )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["url"], "https://example.com/...")
+        self.assertEqual(response["vt"], summary)
+        mocked_summary.assert_called_once_with("https://example.com/private/path", "server-secret")
+
+    def test_virustotal_summary_uses_24h_cache(self):
+        api.vt_cache.clear()
+        report = {
+            "data": {
+                "attributes": {
+                    "last_analysis_stats": {
+                        "malicious": 1,
+                        "suspicious": 0,
+                        "harmless": 4,
+                        "undetected": 2,
+                    }
+                }
+            }
+        }
+
+        with patch("api.vt_request", return_value=report) as mocked_request:
+            first = api.get_vt_summary("https://example.com", "server-secret")
+            second = api.get_vt_summary("https://example.com", "server-secret")
+
+        self.assertFalse(first["cached"])
+        self.assertTrue(second["cached"])
+        self.assertEqual(second["level"], "high")
+        mocked_request.assert_called_once()
+        api.vt_cache.clear()
+
+    def test_virustotal_rate_limit_is_reported(self):
+        api.vt_cache.clear()
+
+        with patch(
+            "api.vt_request",
+            side_effect=HTTPException(status_code=429, detail="vt rate limit reached"),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                api.get_vt_summary("https://example.com", "server-secret")
+
+        self.assertEqual(context.exception.status_code, 429)
+        self.assertEqual(context.exception.detail, "vt rate limit reached")
 
     def run_async(self, awaitable):
         import asyncio
